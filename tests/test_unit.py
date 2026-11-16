@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
+import email
 import imaplib
 import json
 import os
@@ -10,6 +12,8 @@ import socket
 import subprocess
 import sys
 import threading
+import unicodedata
+from typing import cast
 
 import pytest
 
@@ -344,3 +348,266 @@ def test_search_emails_skips_header_fetch_without_text_filters(imap):
     assert b"UID SEARCH UNSEEN" in commands
     assert not any(b"FROM TO SUBJECT" in c for c in commands)
     assert result.total_count == 2
+
+
+def test_search_emails_searches_on_the_server_where_it_matches_decoded_headers(imap, monkeypatch):
+    conn, commands = imap
+    monkeypatch.setattr(imap_client, "SERVER_TEXT_SEARCH_HOSTS", {conn.host})
+
+    result = imap_client.search_emails(conn, subject="회의 일정", is_read=False)
+
+    expected = 'UID SEARCH CHARSET UTF-8 UNSEEN SUBJECT "회의 일정"'.encode()
+    assert commands[1] == expected
+    assert not any(b"FROM TO SUBJECT" in c for c in commands)
+    assert result.total_count == 2
+
+
+def _subject(raw: bytes):
+    return email.message_from_bytes(b"Subject: " + raw + b"\r\n\r\n")
+
+
+def _encoded_word(text: str, charset: str = "utf-8") -> bytes:
+    return b"=?" + charset.encode() + b"?B?" + base64.b64encode(text.encode(charset)) + b"?="
+
+
+MEETING = "회의 일정 안내"
+
+
+@pytest.mark.parametrize(
+    ("raw", "needle"),
+    [
+        pytest.param(_encoded_word(MEETING), "일정", id="utf-8 base64"),
+        pytest.param(_encoded_word(MEETING, "euc-kr"), "일정", id="euc-kr base64"),
+        pytest.param(
+            b"=?ks_c_5601-1987?B?" + base64.b64encode(MEETING.encode("euc-kr")) + b"?=",
+            "일정",
+            id="ks_c_5601-1987 label",
+        ),
+        pytest.param(MEETING.encode("euc-kr"), "일정", id="raw euc-kr bytes without encoded-word"),
+        pytest.param(
+            _encoded_word("회의 일") + b"\r\n " + _encoded_word("정 안내"),
+            "일정",
+            id="word split across two encoded-words",
+        ),
+        pytest.param(
+            b"=?UTF-8?B?" + base64.b64encode(MEETING.encode("euc-kr")) + b"?=",
+            "일정",
+            id="euc-kr bytes mislabelled as utf-8",
+        ),
+        pytest.param(b"Weekly\r\n Report", "weekly report", id="phrase across a folded line"),
+        pytest.param(
+            _encoded_word(unicodedata.normalize("NFD", MEETING)),
+            "일정",
+            id="decomposed Hangul in the subject",
+        ),
+        pytest.param(
+            _encoded_word(MEETING),
+            unicodedata.normalize("NFD", "일정"),
+            id="decomposed Hangul in the search text",
+        ),
+        pytest.param(_encoded_word("ＡＢＣ 안내"), "abc", id="full-width letters"),  # noqa: RUF001
+        pytest.param(_encoded_word("회의  일정"), "회의 일정", id="repeated spaces"),
+        pytest.param(b"=?UTF-8?B?7ZqM7J2Y!!!?= report", "report", id="malformed encoded-word"),
+    ],
+)
+def test_headers_match_finds_text_however_the_subject_is_stored(raw, needle):
+    assert imap_client._headers_match(_subject(raw), {"Subject": needle})
+
+
+def test_headers_match_rejects_text_that_is_absent():
+    assert not imap_client._headers_match(_subject(_encoded_word(MEETING)), {"Subject": "결제"})
+
+
+def test_search_emails_ignores_blank_text_filters(imap):
+    conn, commands = imap
+
+    result = imap_client.search_emails(conn, subject="   ")
+
+    assert not any(b"FROM TO SUBJECT" in c for c in commands)
+    assert result.total_count == 2
+
+
+@pytest.mark.parametrize("charset", ["utf-8", "euc-kr"])
+@pytest.mark.parametrize("prefix", ["", "A", "AB", "가", "가A", "[공지] "])
+def test_encoded_forms_occur_in_base64_subjects_at_every_alignment(charset, prefix):
+    stored = base64.b64encode(f"{prefix}안내 드립니다".encode(charset))
+
+    forms = imap_client._encoded_forms("안내")
+
+    assert any(form in stored for form in forms)
+
+
+@pytest.mark.parametrize("space", [b"_", b"=20"])
+def test_encoded_forms_occur_in_quoted_printable_subjects(space):
+    stored = b"=ED=9A=8C=EC=9D=98" + space + b"=EC=9D=BC=EC=A0=95"
+
+    forms = imap_client._encoded_forms("회의 일정")
+
+    assert stored in forms
+
+
+def test_encoded_forms_keep_ascii_text_as_it_is():
+    assert imap_client._encoded_forms("Weekly Report") == [b"Weekly Report"]
+
+
+def test_search_emails_server_mode_searches_encoded_forms_on_raw_matching_servers(imap):
+    conn, commands = imap
+
+    result = imap_client.search_emails(conn, subject="안내", text_search="server")
+
+    search = commands[1]
+    assert search.startswith(b"UID SEARCH OR OR ")
+    assert b'SUBJECT "7JWI64K0"' in search
+    assert b'SUBJECT "=EC=95=88=EB=82=B4"' in search
+    assert not any(b"FROM TO SUBJECT" in c for c in commands)
+    assert result.total_count == 2
+
+
+def test_search_emails_local_mode_overrides_server_search(imap, monkeypatch):
+    conn, commands = imap
+    monkeypatch.setattr(imap_client, "SERVER_TEXT_SEARCH_HOSTS", {conn.host})
+
+    result = imap_client.search_emails(conn, subject="일정", text_search="local")
+
+    assert commands[1] == b"UID SEARCH ALL"
+    assert result.total_count == 1
+
+
+def test_search_emails_rejects_unknown_text_search_mode(imap):
+    conn, _ = imap
+
+    with pytest.raises(ValueError, match="text_search"):
+        imap_client.search_emails(conn, subject="a", text_search="fuzzy")
+
+
+def test_casings_cover_every_mix_of_upper_and_lower_case():
+    casings = imap_client._casings("git")
+
+    assert sorted(casings) == sorted(["git", "giT", "gIt", "gIT", "Git", "GiT", "GIt", "GIT"])
+
+
+def test_casings_leave_text_without_case_alone():
+    assert imap_client._casings("안내 2026") == ["안내 2026"]
+
+
+def test_text_criteria_ors_all_casings_of_a_short_text():
+    criteria, needs_check = imap_client._text_criteria({"Subject": "github"})
+
+    assert criteria.count("OR") == 63
+    assert b'"GitHub"' in criteria
+    assert not needs_check
+
+
+def test_text_criteria_sends_one_term_for_korean_text():
+    criteria, needs_check = imap_client._text_criteria({"From": "네이버"})
+
+    assert criteria == ["FROM", '"네이버"'.encode()]
+    assert not needs_check
+
+
+def test_text_criteria_cuts_a_long_text_into_pieces_and_asks_for_a_check():
+    criteria, needs_check = imap_client._text_criteria({"Subject": "weekly report"})
+
+    assert b'"weekly r"' in criteria
+    assert b'"eport"' in criteria
+    assert needs_check
+
+
+def test_text_criteria_sends_at_most_three_pieces_of_a_very_long_text():
+    criteria, _ = imap_client._text_criteria({"Subject": "a" * 40})
+
+    assert criteria.count("OR") == 3 * 127
+
+
+def test_text_criteria_escapes_quotes_and_rejects_line_breaks():
+    criteria, _ = imap_client._text_criteria({"Subject": 'A "B"'})
+
+    assert b'"A \\"B\\""' in criteria
+    with pytest.raises(ValueError, match="prohibited"):
+        imap_client._text_criteria({"Subject": "a\r\nA1 LOGOUT"})
+
+
+def test_search_emails_checks_only_the_server_hits_for_a_long_text(imap, monkeypatch):
+    conn, commands = imap
+    monkeypatch.setattr(imap_client, "SERVER_TEXT_SEARCH_HOSTS", {conn.host})
+
+    result = imap_client.search_emails(conn, subject="weekly report")
+
+    assert commands[1].startswith(b"UID SEARCH OR ")
+    assert commands[2] == b"UID FETCH 7,9 (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT)])"
+    assert result.total_count == 1
+
+
+def test_search_emails_trusts_the_server_hits_for_a_short_text(imap, monkeypatch):
+    conn, commands = imap
+    monkeypatch.setattr(imap_client, "SERVER_TEXT_SEARCH_HOSTS", {conn.host})
+
+    result = imap_client.search_emails(conn, subject="weekly")
+
+    assert not any(b"FROM TO SUBJECT" in c for c in commands)
+    assert result.total_count == 2
+
+
+def test_text_criteria_keeps_all_fields_within_the_measured_term_limit():
+    wanted = {"From": "a" * 40, "To": "b" * 40, "Subject": "c" * 40}
+
+    criteria, needs_check = imap_client._text_criteria(wanted)
+
+    terms = sum(1 for c in criteria if c in ("FROM", "TO", "SUBJECT"))
+    assert terms <= imap_client.MAX_SERVER_TERMS
+    # every field still sends its first piece, and the rest is left to the local check
+    assert {"FROM", "TO", "SUBJECT"} <= set(criteria)
+    assert needs_check
+
+
+class _HeaderConn:
+    """Answers each header FETCH with the UIDs it is scripted to return, and records the sets."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.uid_sets = []
+
+    def uid(self, command, uid_set, items):
+        self.uid_sets.append(uid_set)
+        data = []
+        for uid in self.answers.pop(0):
+            headers = b"Subject: Weekly Report\r\n\r\n"
+            item = b"BODY[HEADER.FIELDS (FROM TO SUBJECT)]"
+            data.append((b"1 (UID %d %s {%d}" % (uid, item, len(headers)), headers))
+            data.append(b")")
+        return "OK", data
+
+
+def _filter(conn, uids, sparse=False):
+    return imap_client._filter_by_headers(
+        cast(imaplib.IMAP4_SSL, conn), uids, {"Subject": "weekly"}, sparse=sparse
+    )
+
+
+def test_filter_by_headers_asks_again_for_uids_the_server_left_out():
+    conn = _HeaderConn([[7, 9], [8]])
+
+    assert _filter(conn, [b"7", b"8", b"9"]) == [b"7", b"8", b"9"]
+    assert conn.uid_sets == ["7:9", "8"]
+
+
+def test_filter_by_headers_gives_up_on_a_uid_still_missing_after_the_retry():
+    conn = _HeaderConn([[7, 9], []])
+
+    assert _filter(conn, [b"7", b"8", b"9"]) == [b"7", b"9"]
+    assert conn.uid_sets == ["7:9", "8"]
+
+
+def test_filter_by_headers_does_not_retry_when_every_uid_was_answered():
+    conn = _HeaderConn([[7, 9]])
+
+    assert _filter(conn, [b"7", b"9"], sparse=True) == [b"7", b"9"]
+    assert conn.uid_sets == ["7,9"]
+
+
+def test_filter_by_headers_retries_in_small_batches(monkeypatch):
+    monkeypatch.setattr(imap_client, "HEADER_RETRY_BATCH", 2)
+    conn = _HeaderConn([[], [1, 2], [3]])
+
+    assert _filter(conn, [b"1", b"2", b"3"], sparse=True) == [b"1", b"2", b"3"]
+    assert conn.uid_sets == ["1,2,3", "1,2", "3"]

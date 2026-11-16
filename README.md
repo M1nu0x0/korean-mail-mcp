@@ -104,6 +104,20 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 | is_read | boolean | No | - | 읽음 여부 (true/false/null) |
 | page | integer | No | 1 | 페이지 번호 |
 | page_size | integer | No | 20 | 페이지당 결과 수 (최대 100) |
+| text_search | string | No | auto | 발신자·수신자·제목을 대조하는 방식: `auto`, `server`, `local` |
+
+`text_search`에 따른 동작(2026-11-16 실제 계정 측정):
+
+| 방식 | 네이버 | 다음·카카오 |
+|------|--------|-------------|
+| `local` | 정확, 대소문자 무시. 폴더의 메일 한 통당 약 50ms (411통에 약 20초) | 정확, 대소문자 무시. 2–5초 |
+| `server` | 0.1–2초. 대소문자 무시, 최신 1,000건까지만 반환 | 근사치(98건 중 95건), 2–5초 |
+| `auto` | `server` | `local` |
+
+- `local`은 헤더를 받아 디코딩한 텍스트끼리 비교합니다.
+- 네이버 서버는 대소문자를 구분하므로, `server`는 검색어의 모든 대소문자 조합을 OR로 묶어 보냅니다. 영문자가 7자를 넘으면 7자 단위로 나눠 후보를 좁힌 뒤 그 후보만 헤더를 받아 확인합니다. 확인은 후보 한 통당 약 50ms라서 후보가 1,000건이면 약 50초가 걸리고, 최신 1,000건 상한 때문에 후보가 잘리면 실제 일치 건이 빠질 수 있습니다. 발신자·수신자·제목에 모두 긴 검색어를 넣으면 서버에 보내는 조각 수가 줄어듭니다(OR 항 합계 1,024개 이하).
+- 다음·카카오 서버는 디코딩하지 않은 헤더 원문과 대조합니다. 그래서 `server`는 한글의 base64·quoted-printable 형태를 찾고, 단어가 인코딩 조각 경계에 걸리면 놓칩니다.
+- 다음은 방식과 무관하게 폴더마다 최근 400통만 보입니다.
 
 ### read_email
 | Parameter | Type | Required | Default | Description |
@@ -162,7 +176,9 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 | destination | string | Yes | - | 대상 폴더 이름 또는 `list_folders`의 `raw_name` |
 | folder | string | No | INBOX | 메일이 지금 있는 폴더 |
 
-이동하면 UID가 바뀝니다.
+이동한 뒤에는 UID가 바뀔 수 있으므로 대상 폴더에서 다시 검색해 확인합니다. 네이버·다음·카카오에서는 실측상 그대로 유지됐습니다.
+
+응답은 서버가 이동 요청을 받았다는 뜻입니다. 서버는 없는 UID에도 OK로 답하므로 실제로 옮긴 개수는 알려 주지 않습니다. 대상 폴더를 검색해 확인하세요. 다음은 폴더마다 최근 400통만 보이므로 그보다 오래된 메일은 UID로 옮길 수 없습니다.
 
 ### mark_read
 | Parameter | Type | Required | Default | Description |

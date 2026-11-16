@@ -63,8 +63,23 @@ def search_emails(
     is_read: bool | None = None,
     page: int = 1,
     page_size: int = 20,
+    text_search: str = "auto",
 ) -> str:
     """Search emails in a folder with optional filters.
+
+    text_search chooses how sender, recipient and subject are matched:
+    - "local": the server sends the headers and they are compared here as decoded
+      text. Exact and case-insensitive on every provider. Takes a few seconds on Daum
+      and Kakao; on Naver about 50 ms per message in the folder (minutes for thousands).
+    - "server": the server does the matching. On Naver it takes about a second, ignores
+      case, and returns only the newest 1,000 matches. A text of more than 7 letters is
+      narrowed on the server and then checked here (about 50 ms per candidate, up to
+      about 50 s for 1,000), and the 1,000 cut-off can then hide real matches. On Daum
+      and Kakao it is approximate: a few real matches are missed, more so for
+      one-character Korean words.
+    - "auto" (default): "server" on Naver, "local" on Daum and Kakao.
+
+    Daum shows only the newest 400 messages of a folder, whatever the mode.
 
     Args:
         folder: Mailbox folder to search in (default: INBOX).
@@ -76,6 +91,7 @@ def search_emails(
         is_read: Filter by read status (true=read, false=unread, null=all).
         page: Page number for pagination (default: 1).
         page_size: Number of results per page (default: 20).
+        text_search: "auto" (default), "server" or "local"; see above.
 
     Returns:
         JSON string with search results including email summaries and pagination info.
@@ -93,6 +109,7 @@ def search_emails(
             is_read=is_read,
             page=page,
             page_size=page_size,
+            text_search=text_search,
         )
     return json.dumps(to_dict(result), ensure_ascii=False)
 
@@ -273,7 +290,11 @@ def move_emails(uids: list[str], destination: str, folder: str = "INBOX") -> str
         folder: Folder the emails are in now (default: INBOX).
 
     Returns:
-        JSON string confirming the move. UIDs change after a move.
+        JSON string saying the server accepted the move. The server also answers OK
+        for a UID that does not exist, so the number of emails actually moved is not
+        reported; search the destination folder to confirm. UIDs may change after a
+        move; search again before acting on the moved emails. Daum shows only the
+        newest 400 emails of a folder, so older ones cannot be moved by UID.
     """
     email_addr, password, _ = _get_credentials()
     with imap_client.imap_connection(email_addr, password) as conn:

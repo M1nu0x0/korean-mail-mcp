@@ -9,7 +9,9 @@ import email.header
 import email.message
 import email.utils
 import imaplib
+import itertools
 import re
+import unicodedata
 from collections.abc import Generator
 
 from .models import (
@@ -21,7 +23,7 @@ from .models import (
     Profile,
     SearchResult,
 )
-from .providers import hosts_for
+from .providers import SERVER_TEXT_SEARCH_HOSTS, hosts_for
 
 IMAP_PORT = 993
 TIMEOUT = 30
@@ -416,42 +418,220 @@ def _build_search_criteria(
     return criteria or ["ALL"]
 
 
+def _search_string(value: str) -> bytes:
+    """Encode a search value as an IMAP quoted string."""
+    if any(c in value for c in "\r\n\x00"):
+        raise ValueError("Search value contains prohibited characters.")
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'.encode()
+
+
+# Naver's SEARCH is case-sensitive on every key (SUBJECT, FROM, HEADER, with or without
+# CHARSET) and has no SEARCH=FUZZY. It accepts 1,024 ORed terms at 7-10 ms a term, so every
+# casing of a short text can be sent: 7 cased letters are 128 terms, about a second.
+MAX_CASED_LETTERS = 7
+MAX_TEXT_CHUNKS = 3
+# The most ORed terms in one SEARCH that Naver was measured to accept.
+MAX_SERVER_TERMS = 1024
+HEADER_FETCH_BATCH = 200
+# Messages a header FETCH left out are asked for again in smaller batches.
+HEADER_RETRY_BATCH = 50
+
+
+def _is_cased(char: str) -> bool:
+    return char.lower() != char.upper()
+
+
+def _casings(text: str) -> list[str]:
+    """Every upper/lower casing of `text`."""
+    options = [(c.lower(), c.upper()) if _is_cased(c) else (c,) for c in text]
+    return list(dict.fromkeys("".join(choice) for choice in itertools.product(*options)))
+
+
+def _casing_chunks(text: str) -> list[str]:
+    """Cut `text` into consecutive pieces of at most MAX_CASED_LETTERS cased letters."""
+    pieces, current, cased = [], "", 0
+    for char in text:
+        if _is_cased(char) and cased == MAX_CASED_LETTERS:
+            pieces.append(current)
+            current, cased = "", 0
+        current += char
+        cased += _is_cased(char)
+    pieces.append(current)
+    return [piece.strip() for piece in pieces if piece.strip()]
+
+
+def _text_criteria(wanted: dict[str, str]) -> tuple[list[str | bytes], bool]:
+    """Case-insensitive SEARCH criteria for a server that matches decoded headers.
+
+    Returns the criteria and whether the hits still have to be checked here. A text of
+    up to MAX_CASED_LETTERS cased letters is matched exactly by ORing all its casings.
+    A longer one is cut into such pieces that are ANDed, which also matches messages
+    holding the pieces apart from each other, so those hits are a superset.
+
+    Every piece costs up to 2**MAX_CASED_LETTERS terms. The pieces sent per field are
+    limited so that all fields together stay within MAX_SERVER_TERMS; the check here
+    covers the pieces left out.
+    """
+    criteria: list[str | bytes] = []
+    needs_check = False
+    per_field = max(
+        1, min(MAX_TEXT_CHUNKS, MAX_SERVER_TERMS // (len(wanted) * 2**MAX_CASED_LETTERS))
+    )
+    for name, text in wanted.items():
+        chunks = _casing_chunks(text)
+        needs_check = needs_check or len(chunks) > 1
+        for chunk in chunks[:per_field]:
+            variants = _casings(chunk)
+            criteria += ["OR"] * (len(variants) - 1)
+            for variant in variants:
+                criteria += [name.upper(), _search_string(variant)]
+    return criteria, needs_check
+
+
+MIN_ENCODED_FRAGMENT = 4
+TEXT_SEARCH_MODES = ("auto", "server", "local")
+
+
+def _base64_fragments(data: bytes) -> list[bytes]:
+    """The base64 text `data` turns into at each of the three byte alignments.
+
+    Characters that also depend on the neighbouring bytes are trimmed off, so every
+    fragment appears verbatim wherever `data` was base64-encoded at that alignment.
+    """
+    fragments = []
+    for lead in range(3):
+        tail = -(lead + len(data)) % 3
+        encoded = base64.b64encode(b"\0" * lead + data + b"\0" * tail)
+        fragments.append(encoded[-(-lead * 8 // 6) : len(encoded) - -(-tail * 8 // 6)])
+    return fragments
+
+
+def _quoted_printable(data: bytes) -> bytes:
+    """`data` as it appears inside a Q-encoded word: space is _, other non-alphanumerics =XX."""
+    return b"".join(
+        b"_"
+        if byte == 0x20
+        else bytes([byte])
+        if chr(byte).isalnum() and byte < 128
+        else b"=%02X" % byte
+        for byte in data
+    )
+
+
+def _encoded_forms(text: str) -> list[bytes]:
+    """Byte strings to look for in raw headers that would decode to `text`."""
+    if text.isascii():
+        return [text.encode("ascii")]
+    forms: list[bytes] = []
+    for charset in ("utf-8", "cp949"):
+        try:
+            data = text.encode(charset)
+        except UnicodeEncodeError:
+            continue
+        quoted = _quoted_printable(data)
+        # a space inside a Q-encoded word is written either as _ or as =20
+        forms += [*_base64_fragments(data), quoted, quoted.replace(b"_", b"=20")]
+    # shorter fragments match unrelated base64; the Q-encoded form of any character is longer
+    return [form for form in dict.fromkeys(forms) if len(form) >= MIN_ENCODED_FRAGMENT]
+
+
+def _raw_text_criteria(wanted: dict[str, str]) -> list[str | bytes]:
+    """SEARCH criteria for servers that match the undecoded header bytes (Daum, Kakao).
+
+    A Korean word is stored as base64 or quoted-printable in UTF-8 or EUC-KR, so each
+    of those forms is searched for. This is approximate: a word that straddles two
+    encoded-words is missed (95 of 98 real matches were found on a Daum mailbox).
+    """
+    criteria: list[str | bytes] = []
+    for name, text in wanted.items():
+        forms = _encoded_forms(text)
+        criteria += ["OR"] * (len(forms) - 1)
+        for form in forms:
+            criteria += [name.upper(), _search_string(form.decode("ascii"))]
+    return criteria
+
+
+def _searchable(text: str) -> str:
+    """Reduce text to a form in which equal-looking strings compare equal.
+
+    NFKC composes decomposed Hangul (text typed or named on macOS arrives as jamo) and
+    turns full-width letters into ASCII; whitespace runs, including the line break of a
+    folded header, become one space.
+    """
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+
 def _headers_match(headers: email.message.Message, wanted: dict[str, str]) -> bool:
-    """True when every wanted header contains its text, ignoring case."""
+    """True when every wanted header contains its text."""
     return all(
-        text.casefold() in decode_header_value(headers.get(name)).casefold()
+        _searchable(text) in _searchable(decode_header_value(headers.get(name)))
         for name, text in wanted.items()
     )
 
 
-def _filter_by_headers(
-    conn: imaplib.IMAP4_SSL, uids: list[bytes], wanted: dict[str, str]
-) -> list[bytes]:
-    """Keep the UIDs whose From/To/Subject contain the wanted text.
-
-    Matching happens here, on decoded headers, because Daum and Kakao return no
-    hits for a non-ASCII SEARCH (verified against a mailbox with 98 real matches).
-    """
-    if not uids:
-        return []
-    candidates = set(uids)
-    status, data = conn.uid(
-        "FETCH",
-        f"{uids[0].decode('ascii')}:{uids[-1].decode('ascii')}",
-        "(UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT)])",
-    )
+def _fetch_header_matches(
+    conn: imaplib.IMAP4_SSL, uid_set: str, candidates: set[bytes], wanted: dict[str, str]
+) -> tuple[set[bytes], set[bytes]]:
+    """FETCH the headers of `uid_set`; return the candidate UIDs answered and those that match."""
+    status, data = conn.uid("FETCH", uid_set, "(UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT)])")
     if status != "OK":
         raise MailIMAPError("Failed to fetch headers for search.")
-
-    matched = set()
+    seen: set[bytes] = set()
+    matched: set[bytes] = set()
     for part in data:
         if not isinstance(part, tuple):
             continue
         uid_match = re.search(rb"UID (\d+)", part[0])
         if not uid_match or uid_match.group(1) not in candidates:
             continue
+        seen.add(uid_match.group(1))
         if _headers_match(email.message_from_bytes(part[1]), wanted):
             matched.add(uid_match.group(1))
+    return seen, matched
+
+
+def _filter_by_headers(
+    conn: imaplib.IMAP4_SSL, uids: list[bytes], wanted: dict[str, str], sparse: bool = False
+) -> list[bytes]:
+    """Keep the UIDs whose From/To/Subject contain the wanted text.
+
+    Matching happens here, on decoded headers, because Daum and Kakao return no
+    hits for a non-ASCII SEARCH (verified against a mailbox with 98 real matches).
+
+    `uids` normally is every message the server kept, so one first:last range covers
+    it. With `sparse`, only the listed UIDs are fetched: on Naver each fetched header
+    costs about 50 ms, and a range would pull in the messages between the hits.
+
+    A server can answer a large FETCH with OK and leave messages out, which would hide
+    real matches, so the UIDs that got no answer are asked for once more in small
+    batches. One still missing after that was most likely deleted since the search.
+    """
+    if not uids:
+        return []
+    candidates = set(uids)
+    numbers = [uid.decode("ascii") for uid in uids]
+    if sparse:
+        batches = [
+            ",".join(numbers[i : i + HEADER_FETCH_BATCH])
+            for i in range(0, len(numbers), HEADER_FETCH_BATCH)
+        ]
+    else:
+        batches = [f"{numbers[0]}:{numbers[-1]}"]
+
+    seen: set[bytes] = set()
+    matched: set[bytes] = set()
+    for batch in batches:
+        batch_seen, batch_matched = _fetch_header_matches(conn, batch, candidates, wanted)
+        seen |= batch_seen
+        matched |= batch_matched
+
+    missing = [number for number, uid in zip(numbers, uids, strict=True) if uid not in seen]
+    for i in range(0, len(missing), HEADER_RETRY_BATCH):
+        _, retry_matched = _fetch_header_matches(
+            conn, ",".join(missing[i : i + HEADER_RETRY_BATCH]), candidates, wanted
+        )
+        matched |= retry_matched
     return [uid for uid in uids if uid in matched]
 
 
@@ -466,8 +646,17 @@ def search_emails(
     is_read: bool | None = None,
     page: int = 1,
     page_size: int = 20,
+    text_search: str = "auto",
 ) -> SearchResult:
-    """Search emails with filters and pagination."""
+    """Search emails with filters and pagination.
+
+    text_search picks where sender/recipient/subject are matched: "local" fetches the
+    headers and compares decoded text (exact everywhere, slow on Naver), "server" asks
+    the server (exact but case-sensitive and capped at 1,000 on Naver, approximate on
+    Daum and Kakao), "auto" takes server on Naver and local elsewhere.
+    """
+    if text_search not in TEXT_SEARCH_MODES:
+        raise ValueError(f"text_search must be one of {TEXT_SEARCH_MODES}, got '{text_search}'.")
     folder = _sanitize_folder_name(folder)
     page, page_size = _validate_pagination(page, page_size)
     status, _ = conn.select(_mailbox(folder), readonly=True)
@@ -476,15 +665,35 @@ def search_emails(
             f"Folder '{folder}' not found. Use list_folders to see available folders."
         )
 
-    status, data = conn.uid("SEARCH", *_build_search_criteria(date_from, date_to, is_read))
+    wanted = {"From": sender, "To": recipient, "Subject": subject}
+    # the server only finds composed Hangul; a blank filter would match everything
+    wanted = {
+        name: unicodedata.normalize("NFC", text.strip())
+        for name, text in wanted.items()
+        if text and text.strip()
+    }
+    decodes_headers = conn.host in SERVER_TEXT_SEARCH_HOSTS
+    server_side = text_search == "server" or (text_search == "auto" and decodes_headers)
+
+    criteria: list[str | bytes] = list(_build_search_criteria(date_from, date_to, is_read))
+    check_hits = False
+    if wanted and server_side:
+        if decodes_headers:
+            # CHARSET has to be the first search argument
+            charset = [] if all(t.isascii() for t in wanted.values()) else ["CHARSET", "UTF-8"]
+            text_criteria, check_hits = _text_criteria(wanted)
+        else:
+            charset = []
+            text_criteria = _raw_text_criteria(wanted)
+        criteria = charset + [c for c in criteria if c != "ALL"] + text_criteria
+    # imaplib sends bytes arguments as they are; typeshed only declares str
+    status, data = conn.uid("SEARCH", *criteria)  # pyright: ignore[reportArgumentType]
     if status != "OK":
         raise MailIMAPError("Search failed.")
 
     uid_list = data[0].split() if data[0] else []
-    wanted = {"From": sender, "To": recipient, "Subject": subject}
-    wanted = {name: text for name, text in wanted.items() if text}
-    if wanted:
-        uid_list = _filter_by_headers(conn, uid_list, wanted)
+    if wanted and (check_hits or not server_side):
+        uid_list = _filter_by_headers(conn, uid_list, wanted, sparse=server_side)
     uid_list.reverse()
 
     total_count = len(uid_list)
