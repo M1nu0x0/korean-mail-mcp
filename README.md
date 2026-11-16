@@ -108,6 +108,15 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 }
 ```
 
+Claude Code에서는 `claude mcp add`로 같은 서버를 등록할 수 있습니다. 서버 이름은 계정마다 달라야 하고(같은 이름을 다시 쓰면 `already exists` 오류가 납니다), 서비스는 이름이 아니라 주소의 도메인으로 정해집니다. 같은 서비스의 계정이 둘이면 `naver-mail-a`, `naver-mail-b`처럼 이름을 나눠 붙이세요.
+
+```bash
+claude mcp add --scope user naver-mail-a -e MAIL_ADDRESS=a_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+```
+
+도구도 서버별로 나뉘어 보이므로 어느 계정인지는 `get_profile`로 확인합니다. 이 방식에서는 입력한 값이 플러그인의 민감한 값처럼 따로 보관되지 않고 `~/.claude.json`에 그대로 저장됩니다. 직접 등록한 서버만 쓸 거라면 플러그인은 `claude plugin disable korean-mail-mcp`로 끕니다.
+
 > **주의:** Claude Desktop은 시스템 PATH를 상속하지 않습니다. `command`에는 `uvx`의 **절대 경로**를 쓰세요. `which uvx`로 확인할 수 있습니다. 플러그인의 `.mcp.json`은 `uvx`를 이름으로 부르므로, 같은 문제로 서버가 시작되지 않으면 이 방식으로 직접 등록하세요.
 
 ## Prerequisites

@@ -108,6 +108,15 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 }
 ```
 
+Claude Code では、同じサーバーを `claude mcp add` で登録できます。サーバー名はアカウントごとに別にする必要があり(同じ名前を再び使うと `already exists` エラーになります)、サービスは名前ではなくアドレスのドメインで決まります。同じサービスのアカウントが 2 つなら、`naver-mail-a`、`naver-mail-b` のように名前を分けてください。
+
+```bash
+claude mcp add --scope user naver-mail-a -e MAIL_ADDRESS=a_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+```
+
+ツールもサーバーごとに分かれて表示されるので、どのアカウントかは `get_profile` で確認します。この方法では、入力した値はプラグインの機密値のように別保管されず、`~/.claude.json` にそのまま保存されます。手動で登録したサーバーだけを使う場合は、プラグインを `claude plugin disable korean-mail-mcp` で無効にします。
+
 > **注意:** Claude Desktop はシステムの PATH を引き継ぎません。`command` には `uvx` の**絶対パス**を書いてください。`which uvx` で確認できます。プラグインの `.mcp.json` は `uvx` を名前で呼ぶので、同じ理由でサーバーが起動しない場合は、この方法で手動登録してください。
 
 ## Prerequisites

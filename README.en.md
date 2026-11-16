@@ -108,6 +108,15 @@ For when you do not use the plugin. Register one server per account.
 }
 ```
 
+In Claude Code you can register the same server with `claude mcp add`. The server name must be different for each account (using a name again fails with `already exists`), and the service is picked by the domain of the address, not by the name. For two accounts at the same service, give them separate names such as `naver-mail-a` and `naver-mail-b`.
+
+```bash
+claude mcp add --scope user naver-mail-a -e MAIL_ADDRESS=a_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_PASSWORD=your_app_password -- uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
+```
+
+The tools are listed per server, so use `get_profile` to see which account a server holds. This way the values you enter are not kept as sensitive values the way the plugin keeps them; they are stored as they are in `~/.claude.json`. If you will use only servers you registered by hand, turn the plugin off with `claude plugin disable korean-mail-mcp`.
+
 > **Note:** Claude Desktop does not inherit the system PATH. Use the **absolute path** of `uvx` as `command`; `which uvx` shows it. The plugin's `.mcp.json` calls `uvx` by name, so if the server fails to start for this reason, register it by hand this way.
 
 ## Prerequisites

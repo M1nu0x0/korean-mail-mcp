@@ -13,4 +13,5 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - A `Release check` workflow that fails a `vX.Y.Z` tag unless it matches the version in both `plugin.json` and `pyproject.toml`
 - A GitHub Pages site in Korean, English and Japanese, built with [claude-plugin-site](https://github.com/M1nu0x0/claude-plugin-site) v0.1.1 and published by a `Pages` workflow
 - READMEs in English and Japanese, and a Korean README that now starts with the plugin install
+- The READMEs and the site's FAQ show how to register accounts by hand with `claude mcp add`: each account needs its own server name, such as `naver-mail-a` and `naver-mail-b` for two Naver accounts, because the service comes from the domain of the address; the plugin is turned off with `claude plugin disable korean-mail-mcp` when only those servers are used
 - Dependabot updates for GitHub Actions, the uv dependencies and the site, each waiting 7 days after a release (`cooldown: default-days: 7`), so a malicious release that is pulled within a week never reaches a pull request; security updates skip the wait
