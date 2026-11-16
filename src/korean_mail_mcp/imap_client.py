@@ -763,6 +763,22 @@ def _fetch_email_summary(conn: imaplib.IMAP4_SSL, uid: bytes) -> EmailSummary | 
     )
 
 
+def _part_bytes(part: email.message.Message) -> bytes | None:
+    """Return the decoded content of a MIME part, or None when it has none.
+
+    An attached .eml (message/rfc822) is parsed into a nested message, so
+    get_payload(decode=True) returns None for it. Serialize the inner message
+    back to bytes so it has a size and can be downloaded like any other file.
+    """
+    payload = part.get_payload(decode=True)
+    if isinstance(payload, bytes):
+        return payload
+    inner = part.get_payload()
+    if isinstance(inner, list) and len(inner) == 1 and isinstance(inner[0], email.message.Message):
+        return inner[0].as_bytes()
+    return None
+
+
 def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Email:
     """Read a full email by UID."""
     uid = _sanitize_uid(uid)
@@ -821,8 +837,8 @@ def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Emai
             else:
                 filename = f"attachment_{part_counter}"
 
-            payload = part.get_payload(decode=True)
-            size = len(payload) if isinstance(payload, bytes) else 0
+            payload = _part_bytes(part)
+            size = len(payload) if payload is not None else 0
 
             attachments.append(
                 AttachmentMeta(
@@ -1015,8 +1031,8 @@ def download_attachment(
 
     for counter, part in enumerate(msg.walk(), start=1):
         if str(counter) == part_number:
-            payload = part.get_payload(decode=True)
-            if not isinstance(payload, bytes):
+            payload = _part_bytes(part)
+            if payload is None:
                 raise MailIMAPError(f"Attachment part '{part_number}' has no content.")
 
             if len(payload) > MAX_ATTACHMENT_BYTES:

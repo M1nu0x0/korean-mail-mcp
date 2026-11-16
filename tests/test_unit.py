@@ -397,6 +397,30 @@ def test_read_email_lists_an_attached_eml_file():
     assert [(a.filename, a.content_type) for a in mail.attachments] == [
         ("fwd.eml", "message/rfc822")
     ]
+    assert mail.attachments[0].size > 0
+
+
+def test_download_attachment_returns_the_content_of_an_attached_eml_file():
+    raw = (
+        b'Content-Type: multipart/mixed; boundary="b"\r\n\r\n'
+        b"--b\r\nContent-Type: text/plain\r\n\r\nsee attached\r\n"
+        b"--b\r\nContent-Type: message/rfc822\r\n"
+        b'Content-Disposition: attachment; filename="fwd.eml"\r\n\r\n'
+        b"Subject: inner\r\nContent-Type: text/plain\r\n\r\ninner body\r\n"
+        b"--b--\r\n"
+    )
+    conn = _OneMessage(raw)
+
+    part_number = imap_client.read_email(conn, "5").attachments[0].part_number  # type: ignore[arg-type]
+    result = imap_client.download_attachment(conn, "5", part_number)  # type: ignore[arg-type]
+
+    content = base64.b64decode(result.content_base64)
+    assert result.filename == "fwd.eml"
+    assert result.content_type == "message/rfc822"
+    assert result.size == len(content) > 0
+    inner = email.message_from_bytes(content)
+    assert inner["Subject"] == "inner"
+    assert cast(str, inner.get_payload()).strip() == "inner body"
 
 
 def test_read_email_keeps_a_body_part_that_only_has_a_content_type_name():
