@@ -1,17 +1,17 @@
-"""SMTP client for Naver Mail."""
+"""SMTP client for Naver, Daum and Kakao mail."""
 
 from __future__ import annotations
 
 import smtplib
 from email.message import EmailMessage
 
+from .providers import hosts_for
 
-SMTP_HOST = "smtp.naver.com"
 SMTP_PORT = 465
 ALLOWED_BODY_TYPES = {"text/plain", "text/html"}
 
 
-class NaverSMTPError(Exception):
+class MailSMTPError(Exception):
     """SMTP operation failed."""
 
 
@@ -34,13 +34,15 @@ def send_email(
     in_reply_to: str | None = None,
     references: list[str] | None = None,
 ) -> dict:
-    """Send an email via Naver SMTP.
+    """Send an email via the provider's SMTP server.
 
     For replies, provide in_reply_to (Message-ID of the email being
     replied to) and references (list of Message-IDs in the thread).
     """
     if body_type not in ALLOWED_BODY_TYPES:
         raise ValueError(f"body_type must be one of {ALLOWED_BODY_TYPES}, got '{body_type}'.")
+
+    _, smtp_host = hosts_for(email_address)
 
     msg = EmailMessage()
     if full_name:
@@ -64,21 +66,18 @@ def send_email(
         msg.set_content(body, charset="utf-8")
 
     try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+        with smtplib.SMTP_SSL(smtp_host, SMTP_PORT, timeout=30) as server:
             server.login(email_address, password)
             server.send_message(msg)
     except smtplib.SMTPAuthenticationError as e:
-        raise NaverSMTPError(
-            "SMTP authentication failed. "
-            "Check your Naver email address and app password."
+        raise MailSMTPError(
+            "SMTP authentication failed. Check your email address and app password."
         ) from e
     except smtplib.SMTPException as e:
-        raise NaverSMTPError(
-            "Failed to send email. Check recipients and try again."
-        ) from e
+        raise MailSMTPError("Failed to send email. Check recipients and try again.") from e
     except OSError as e:
-        raise NaverSMTPError(
-            f"Cannot connect to Naver SMTP server ({SMTP_HOST}:{SMTP_PORT}). "
+        raise MailSMTPError(
+            f"Cannot connect to SMTP server ({smtp_host}:{SMTP_PORT}). "
             "Check your network connection."
         ) from e
 

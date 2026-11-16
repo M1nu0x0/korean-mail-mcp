@@ -1,6 +1,9 @@
-"""Data models for Naver Mail MCP Server."""
+"""Data models for Korean Mail MCP Server."""
+
+from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -85,6 +88,6 @@ class SearchResult:
     has_more: bool
 
 
-def to_dict(obj: object) -> dict:
+def to_dict(obj: Any) -> dict:
     """Convert a dataclass instance to a JSON-serializable dict."""
     return asdict(obj)

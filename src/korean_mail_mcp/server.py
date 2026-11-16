@@ -1,6 +1,6 @@
-"""Naver Mail MCP Server.
+"""Mail MCP server for Naver, Daum and Kakao.
 
-Provides 9 tools for interacting with Naver Mail via IMAP/SMTP.
+One server process serves one account; the provider is chosen by the email domain.
 All logging goes to stderr — stdout is reserved for MCP JSON-RPC.
 """
 
@@ -11,15 +11,16 @@ import logging
 import os
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from . import imap_client, smtp_client
 from .models import to_dict
+from .providers import hosts_for
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s - %(message)s")
-logger = logging.getLogger("naver-mail-mcp")
+logger = logging.getLogger("korean-mail-mcp")
 
-mcp = FastMCP("naver-mail-mcp")
+mcp = MCPServer("korean-mail-mcp")
 
 
 def _get_credentials() -> tuple[str, str, str]:
@@ -31,21 +32,20 @@ def _get_credentials() -> tuple[str, str, str]:
     Raises:
         ValueError: If required env vars are missing.
     """
-    email_address = os.environ.get("NAVER_EMAIL_ADDRESS", "")
-    password = os.environ.get("NAVER_EMAIL_PASSWORD", "")
-    full_name = os.environ.get("NAVER_FULL_NAME", "")
+    email_address = os.environ.get("MAIL_ADDRESS", "")
+    password = os.environ.get("MAIL_PASSWORD", "")
+    full_name = os.environ.get("MAIL_FULL_NAME", "")
 
     if not email_address or not password:
         raise ValueError(
-            "Missing required environment variables: "
-            "NAVER_EMAIL_ADDRESS and NAVER_EMAIL_PASSWORD must be set."
+            "Missing required environment variables: MAIL_ADDRESS and MAIL_PASSWORD must be set."
         )
     return email_address, password, full_name
 
 
 @mcp.tool()
 def get_profile() -> str:
-    """Get Naver Mail account profile including email address, display name, total messages, and unread count."""
+    """Get the account profile: email address, display name, total messages, and unread count."""
     email_addr, password, full_name = _get_credentials()
     with imap_client.imap_connection(email_addr, password) as conn:
         result = imap_client.get_profile(conn, email_addr, full_name)
@@ -106,7 +106,7 @@ def read_email(uid: str, folder: str = "INBOX") -> str:
         folder: Mailbox folder containing the email (default: INBOX).
 
     Returns:
-        JSON string with full email data including headers, body (text and HTML), and attachment metadata.
+        JSON string with headers, body (text and HTML), and attachment metadata.
     """
     email_addr, password, _ = _get_credentials()
     with imap_client.imap_connection(email_addr, password) as conn:
@@ -213,9 +213,16 @@ def send_email(
     """
     email_addr, password, full_name = _get_credentials()
     result = smtp_client.send_email(
-        email_addr, password, full_name,
-        to, subject, body, body_type, cc,
-        in_reply_to, references,
+        email_addr,
+        password,
+        full_name,
+        to,
+        subject,
+        body,
+        body_type,
+        cc,
+        in_reply_to,
+        references,
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -240,15 +247,83 @@ def download_attachment(uid: str, part_number: str, folder: str = "INBOX") -> st
     return json.dumps(to_dict(result), ensure_ascii=False)
 
 
+@mcp.tool()
+def create_folder(name: str) -> str:
+    """Create a mailbox folder. Folders are how these providers label mail.
+
+    Args:
+        name: Folder name, e.g. '영수증'.
+
+    Returns:
+        JSON string confirming the folder was created.
+    """
+    email_addr, password, _ = _get_credentials()
+    with imap_client.imap_connection(email_addr, password) as conn:
+        result = imap_client.create_folder(conn, name)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def move_emails(uids: list[str], destination: str, folder: str = "INBOX") -> str:
+    """Move emails to another folder. An email lives in exactly one folder.
+
+    Args:
+        uids: UIDs of the emails to move (from search_emails), at most 500.
+        destination: Target folder name or raw_name from list_folders.
+        folder: Folder the emails are in now (default: INBOX).
+
+    Returns:
+        JSON string confirming the move. UIDs change after a move.
+    """
+    email_addr, password, _ = _get_credentials()
+    with imap_client.imap_connection(email_addr, password) as conn:
+        result = imap_client.move_emails(conn, uids, destination, folder)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def mark_read(uids: list[str], folder: str = "INBOX", read: bool = True) -> str:
+    """Mark emails as read or unread.
+
+    Args:
+        uids: UIDs of the emails (from search_emails), at most 500.
+        folder: Folder containing the emails (default: INBOX).
+        read: True marks as read (default), False marks as unread.
+
+    Returns:
+        JSON string confirming the change.
+    """
+    email_addr, password, _ = _get_credentials()
+    with imap_client.imap_connection(email_addr, password) as conn:
+        result = imap_client.mark_read(conn, uids, folder, read)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def trash_emails(uids: list[str], folder: str = "INBOX") -> str:
+    """Move emails to the Trash folder. They are not permanently deleted.
+
+    Args:
+        uids: UIDs of the emails (from search_emails), at most 500.
+        folder: Folder containing the emails (default: INBOX).
+
+    Returns:
+        JSON string confirming the move to Trash.
+    """
+    email_addr, password, _ = _get_credentials()
+    with imap_client.imap_connection(email_addr, password) as conn:
+        result = imap_client.trash_emails(conn, uids, folder)
+    return json.dumps(result, ensure_ascii=False)
+
+
 def main():
     """Entry point for the MCP server."""
     try:
-        _get_credentials()
+        hosts_for(_get_credentials()[0])
     except ValueError as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
+        sys.exit(str(e))
 
-    logger.info("Starting Naver Mail MCP Server")
+    logger.info("Starting mail MCP server")
     mcp.run(transport="stdio")
 
 

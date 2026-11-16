@@ -1,8 +1,15 @@
-# naver-mail-mcp
+# korean-mail-mcp
 
-Naver Mail MCP Server for Claude Desktop.
+네이버·다음·카카오 메일을 MCP 클라이언트에서 쓰게 해 주는 MCP(Model Context Protocol) 서버입니다.
+[chanmuzi/naver-mail-mcp](https://github.com/chanmuzi/naver-mail-mcp)의 fork이며, 다음·카카오 지원과 메일함 정리 도구를 더했습니다.
 
-네이버 메일을 Claude Desktop에서 Gmail MCP처럼 사용할 수 있게 해주는 MCP(Model Context Protocol) 서버입니다.
+서버 프로세스 하나가 계정 하나를 맡고, 접속할 서버는 이메일 주소의 도메인으로 정합니다.
+
+| 도메인 | IMAP | SMTP |
+|--------|------|------|
+| `naver.com` | `imap.naver.com` | `smtp.naver.com` |
+| `daum.net`, `hanmail.net` | `imap.daum.net` | `smtp.daum.net` |
+| `kakao.com` | `imap.kakao.com` | `smtp.kakao.com` |
 
 ## Features
 
@@ -17,79 +24,68 @@ Naver Mail MCP Server for Claude Desktop.
 | `list_drafts` | Drafts 폴더의 초안 목록 조회 |
 | `send_email` | SMTP로 메일 발송 (새 메일, 답장) |
 | `download_attachment` | 첨부파일 다운로드 (base64 인코딩) |
+| `create_folder` | 폴더(내 메일함) 생성 |
+| `move_emails` | 메일을 다른 폴더로 이동 |
+| `mark_read` | 읽음 / 안읽음 표시 |
+| `trash_emails` | 휴지통으로 이동 (영구 삭제하지 않음) |
+
+이 서비스들에는 Gmail의 라벨이 없습니다. 메일 하나는 폴더 하나에만 들어가므로, 분류는 폴더를 만들고 옮기는 방식으로 합니다.
 
 ## Installation
 
+PyPI에는 배포되어 있지 않습니다. `uvx`로 이 저장소에서 바로 실행합니다.
+
 ```bash
-uvx naver-mail-mcp
+uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 ```
 
-## Claude Desktop Configuration
+## MCP Client Configuration
 
-### PyPI 배포 후 (권장)
-
-`claude_desktop_config.json`에 추가:
+계정마다 서버를 하나씩 등록합니다.
 
 ```json
 {
   "mcpServers": {
-    "naver-email": {
-      "command": "uvx",
-      "args": ["naver-mail-mcp"],
+    "naver-mail": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
       "env": {
-        "NAVER_EMAIL_ADDRESS": "your_email@naver.com",
-        "NAVER_EMAIL_PASSWORD": "your_app_password",
-        "NAVER_FULL_NAME": "Your Name"
+        "MAIL_ADDRESS": "your_id@naver.com",
+        "MAIL_PASSWORD": "your_app_password",
+        "MAIL_FULL_NAME": "Your Name"
+      }
+    },
+    "daum-mail": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
+      "env": {
+        "MAIL_ADDRESS": "your_id@daum.net",
+        "MAIL_PASSWORD": "your_imap_password"
       }
     }
   }
 }
 ```
 
-### 로컬 개발 모드
-
-PyPI에 배포하기 전, 로컬 소스에서 직접 실행:
-
-```json
-{
-  "mcpServers": {
-    "naver-email": {
-      "command": "/absolute/path/to/uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/naver-mail-mcp",
-        "run",
-        "naver-mail-mcp"
-      ],
-      "env": {
-        "NAVER_EMAIL_ADDRESS": "your_email@naver.com",
-        "NAVER_EMAIL_PASSWORD": "your_app_password",
-        "NAVER_FULL_NAME": "Your Name"
-      }
-    }
-  }
-}
-```
-
-> **주의:** Claude Desktop은 시스템 PATH를 상속하지 않습니다. `command`에는 반드시 `uv`의 **절대 경로**를 사용하세요. (예: `/Users/username/.local/bin/uv`)
->
-> `which uv` 명령으로 절대 경로를 확인할 수 있습니다.
+> **주의:** Claude Desktop은 시스템 PATH를 상속하지 않습니다. `command`에는 `uvx`의 **절대 경로**를 쓰세요. `which uvx`로 확인할 수 있습니다.
 
 ## Prerequisites
 
 1. **Python 3.10+**
-2. **네이버 계정**에서 IMAP/SMTP 사용 설정
-   - 네이버 메일 → 설정 → POP3/IMAP 설정 → IMAP/SMTP 사용 ✅
-3. **애플리케이션 비밀번호** 발급 (2단계 인증 필수)
-   - 네이버 → 내 정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호 관리
+2. 메일 서비스에서 **IMAP/SMTP 사용** 설정
+   - 네이버: 메일 → 설정 → POP3/IMAP 설정 → IMAP/SMTP 사용
+   - 다음·카카오: 메일 → 설정 → IMAP/POP3 → IMAP 사용
+3. **IMAP용 비밀번호** 준비 (로그인 비밀번호가 아님)
+   - 네이버: 내 정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호 관리
+   - 다음·카카오: IMAP 설정 화면에서 안내하는 전용 비밀번호
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NAVER_EMAIL_ADDRESS` | Yes | 네이버 이메일 주소 |
-| `NAVER_EMAIL_PASSWORD` | Yes | 애플리케이션 비밀번호 (계정 비밀번호 아님) |
-| `NAVER_FULL_NAME` | No | 발신 메일 표시 이름 |
+| `MAIL_ADDRESS` | Yes | 이메일 주소. 도메인으로 서비스를 정함 |
+| `MAIL_PASSWORD` | Yes | IMAP용 비밀번호 (계정 비밀번호 아님) |
+| `MAIL_FULL_NAME` | No | 발신 메일 표시 이름 |
 
 ## Tools Reference
 
@@ -154,22 +150,57 @@ PyPI에 배포하기 전, 로컬 소스에서 직접 실행:
 | part_number | string | Yes | - | MIME 파트 번호 (read_email에서 확인) |
 | folder | string | No | INBOX | 폴더 |
 
+### create_folder
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| name | string | Yes | - | 폴더 이름 |
+
+### move_emails
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| uids | array | Yes | - | 옮길 메일의 UID 목록 (최대 500) |
+| destination | string | Yes | - | 대상 폴더 이름 또는 `list_folders`의 `raw_name` |
+| folder | string | No | INBOX | 메일이 지금 있는 폴더 |
+
+이동하면 UID가 바뀝니다.
+
+### mark_read
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| uids | array | Yes | - | 메일 UID 목록 (최대 500) |
+| folder | string | No | INBOX | 폴더 |
+| read | boolean | No | true | true는 읽음, false는 안읽음 |
+
+### trash_emails
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| uids | array | Yes | - | 메일 UID 목록 (최대 500) |
+| folder | string | No | INBOX | 폴더 |
+
+### 폴더 이름
+
+`folder`와 `destination`에는 한글 이름(`영수증`)이나 `list_folders`가 돌려주는 `raw_name`을 쓸 수 있습니다. 이름에 `&`가 들어 있으면 `raw_name`을 쓰세요.
+
 ## Development
 
 ```bash
 # Clone and install
-git clone https://github.com/chanmuzi/naver-mail-mcp.git
-cd naver-mail-mcp
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install -e .
+git clone https://github.com/M1nu0x0/korean-mail-mcp.git
+cd korean-mail-mcp
+uv sync
 
 # Set credentials
 cp .env.example .env
 # Edit .env with your credentials
 
-# Run tests
-python -m tests.test_integration
+# Static checks and unit tests (no account needed)
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest
+
+# Integration tests against the real mail server (needs .env)
+uv run python -m tests.test_integration
 ```
 
 ## Troubleshooting
@@ -177,15 +208,16 @@ python -m tests.test_integration
 | Error | Solution |
 |-------|----------|
 | `IMAP authentication failed` | 앱 비밀번호 확인. 계정 비밀번호가 아닌 애플리케이션 비밀번호 사용 |
-| `Cannot connect to Naver IMAP server` | 네트워크 확인, IMAP 사용 설정 확인 |
-| `Missing required environment variables` | NAVER_EMAIL_ADDRESS, NAVER_EMAIL_PASSWORD 환경변수 설정 |
+| `Cannot connect to IMAP server` | 네트워크 확인, IMAP 사용 설정 확인 |
+| `Missing required environment variables` | `MAIL_ADDRESS`, `MAIL_PASSWORD` 환경변수 설정 |
+| `Unsupported mail domain` | 지원 도메인(`naver.com`, `daum.net`, `hanmail.net`, `kakao.com`)의 주소인지 확인 |
 | `Folder not found` | `list_folders` 도구로 사용 가능한 폴더명 확인 |
-| `Failed to spawn process` | `command`에 `uv`의 절대 경로 사용 (`which uv`로 확인) |
+| `Failed to spawn process` | `command`에 `uvx`의 절대 경로 사용 (`which uvx`로 확인) |
 
 ## Technical Details
 
-- **IMAP**: `imap.naver.com:993` (SSL/TLS)
-- **SMTP**: `smtp.naver.com:465` (SSL)
+- **IMAP**: 포트 993 (SSL/TLS)
+- **SMTP**: 포트 465 (SSL)
 - **Transport**: stdio (Claude Desktop 연동)
 - **Encoding**: UTF-8, EUC-KR, Modified UTF-7 (폴더명) 자동 처리
 - **Connection**: 각 도구 호출마다 새 연결 (stateless)

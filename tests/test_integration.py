@@ -1,4 +1,4 @@
-"""Integration tests for Naver Mail MCP Server.
+"""Integration tests for Korean Mail MCP Server.
 
 Run with: python -m tests.test_integration
 Requires .env file with valid Naver credentials.
@@ -6,7 +6,6 @@ Requires .env file with valid Naver credentials.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -20,15 +19,15 @@ if env_path.exists():
             key, _, value = line.partition("=")
             os.environ[key.strip()] = value.strip()
 
-from naver_mail_mcp import imap_client, smtp_client
+from korean_mail_mcp import imap_client
 
 
 def get_creds():
-    email = os.environ.get("NAVER_EMAIL_ADDRESS", "")
-    password = os.environ.get("NAVER_EMAIL_PASSWORD", "")
-    full_name = os.environ.get("NAVER_FULL_NAME", "")
+    email = os.environ.get("MAIL_ADDRESS", "")
+    password = os.environ.get("MAIL_PASSWORD", "")
+    full_name = os.environ.get("MAIL_FULL_NAME", "")
     if not email or not password:
-        print("ERROR: Set NAVER_EMAIL_ADDRESS and NAVER_EMAIL_PASSWORD in .env")
+        print("ERROR: Set MAIL_ADDRESS and MAIL_PASSWORD in .env")
         sys.exit(1)
     return email, password, full_name
 
@@ -125,7 +124,9 @@ def test_download_attachment():
                 att = mail.attachments[0]
                 print(f"  Found attachment: {att.filename} ({att.content_type}, {att.size} bytes)")
                 content = imap_client.download_attachment(conn, mail.uid, att.part_number, "INBOX")
-                print(f"  Downloaded: {content.filename}, base64 length: {len(content.content_base64)}")
+                print(
+                    f"  Downloaded: {content.filename}, base64 len: {len(content.content_base64)}"
+                )
                 return True
     print("  SKIP: No emails with attachments found in first 20 emails")
     return True
@@ -133,9 +134,10 @@ def test_download_attachment():
 
 def test_missing_env_vars():
     """Test that missing env vars raise ValueError."""
-    saved = os.environ.pop("NAVER_EMAIL_ADDRESS", None)
+    saved = os.environ.pop("MAIL_ADDRESS", None)
     try:
-        from naver_mail_mcp.server import _get_credentials
+        from korean_mail_mcp.server import _get_credentials
+
         try:
             _get_credentials()
             print("  FAIL: Should have raised ValueError")
@@ -145,7 +147,7 @@ def test_missing_env_vars():
             return True
     finally:
         if saved:
-            os.environ["NAVER_EMAIL_ADDRESS"] = saved
+            os.environ["MAIL_ADDRESS"] = saved
 
 
 def test_wrong_password():
@@ -175,7 +177,7 @@ ALL_TESTS = [
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Naver Mail MCP Server — Integration Tests")
+    print("Korean Mail MCP Server — Integration Tests")
     print("=" * 60)
 
     passed = 0
@@ -187,10 +189,10 @@ if __name__ == "__main__":
         try:
             result = test_fn()
             if result:
-                print(f"  RESULT: PASS")
+                print("  RESULT: PASS")
                 passed += 1
             else:
-                print(f"  RESULT: FAIL")
+                print("  RESULT: FAIL")
                 failed += 1
         except Exception as e:
             print(f"  RESULT: ERROR — {type(e).__name__}: {e}")

@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-네이버 메일 전용 MCP 서버 (Python, FastMCP).
-기존 mcp-email-server가 네이버 IMAP과 호환되지 않아 커스텀 구현.
+네이버·다음·카카오 메일 MCP 서버 (Python, mcp 2.x의 MCPServer).
+chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나가 계정 하나를 맡고, 접속 서버는 `MAIL_ADDRESS`의 도메인으로 정한다(`providers.py`).
 
-## Tools (9개)
+## Tools (13개)
 
-`get_profile`, `search_emails`, `read_email`, `read_thread`, `list_folders`, `create_draft`, `list_drafts`, `send_email`, `download_attachment`
+`get_profile`, `search_emails`, `read_email`, `read_thread`, `list_folders`, `create_draft`, `list_drafts`, `send_email`, `download_attachment`, `create_folder`, `move_emails`, `mark_read`, `trash_emails`
 
 ## Security
 
@@ -18,5 +18,8 @@
 
 ## Testing
 
-- 자동화된 통합 테스트: 8/8 PASS (실제 네이버 IMAP/SMTP 서버 대상, `send_email` 제외)
-- `send_email`은 실제 메일이 발송되므로 자동화된 통합 테스트에서 제외하며, 별도 수동 테스트가 필요
+- 단위 테스트: `uv run pytest` (계정 불필요, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
+- 정적 검사: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
+- 통합 테스트: `uv run python -m tests.test_integration` (실제 계정 필요, CI에서 돌리지 않음)
+- `send_email`과 정리 도구(`move_emails`, `mark_read`, `trash_emails`, `create_folder`)는 메일함을 바꾸므로 통합 테스트에 넣지 않는다.
+- 다음·카카오와 정리 도구는 실제 계정으로 검증되지 않았다. 검증하면 이 줄을 고친다.
