@@ -10,7 +10,7 @@
 네이버·다음·카카오 메일을 Claude에서 쓰게 해 주는 Claude Code 플러그인이자 MCP(Model Context Protocol) 서버입니다.
 [chanmuzi/naver-mail-mcp](https://github.com/chanmuzi/naver-mail-mcp)의 fork이며, 다음·카카오 지원과 메일함 정리 도구를 더했습니다.
 
-서버 프로세스 하나가 계정 하나를 맡고, 접속할 서버는 이메일 주소의 도메인으로 정합니다.
+서버 프로세스 하나는 기본으로 계정 하나를 맡고(`MAIL_ACCOUNTS`로 여러 계정을 맡길 수도 있습니다), 접속할 서버는 이메일 주소의 도메인으로 정합니다.
 
 **[Website](https://m1nu0x0.github.io/korean-mail-mcp/ko/) · [Releases](https://github.com/M1nu0x0/korean-mail-mcp/releases) · [Changelog](CHANGELOG.md)**
 
@@ -70,7 +70,7 @@ Claude Desktop에서는 프롬프트 옆 `+` → Plugins → Add marketplace에 
 
 IMAP용 비밀번호를 받는 방법은 아래 [Prerequisites](#prerequisites)에 있습니다.
 
-플러그인은 계정 하나를 담당합니다. 계정이 여러 개이거나 Claude Code 밖의 MCP 클라이언트에서 쓴다면 아래 [MCP Client Configuration](#mcp-client-configuration)처럼 서버를 직접 등록합니다.
+플러그인은 계정 하나를 담당합니다. 계정이 여러 개이거나 Claude Code 밖의 MCP 클라이언트에서 쓴다면 아래 [MCP Client Configuration](#mcp-client-configuration)처럼 서버를 직접 등록합니다. 여러 계정은 서버 하나로 묶을 수도 있습니다([Multiple Accounts](#multiple-accounts)).
 
 끄려면 `claude plugin disable korean-mail-mcp`, 제거하려면 `claude plugin uninstall korean-mail-mcp`를 실행합니다.
 
@@ -136,10 +136,51 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 | `MAIL_ADDRESS` | Yes | 이메일 주소. 도메인으로 서비스를 정함 |
 | `MAIL_PASSWORD` | Yes | IMAP용 비밀번호 (계정 비밀번호 아님) |
 | `MAIL_FULL_NAME` | No | 발신 메일 표시 이름 |
+| `MAIL_ACCOUNTS` | No | 여러 계정의 이름 목록. 있으면 위 세 변수 대신 `MAIL_<이름>_*`를 읽음. [Multiple Accounts](#multiple-accounts) 참고 |
 
 플러그인은 위의 세 값을 `mail_address`, `mail_password`, `mail_full_name`으로 받아 같은 이름의 환경변수로 서버에 넘깁니다.
 
+## Multiple Accounts
+
+서버 하나로 여러 계정을 다루려면 `MAIL_ACCOUNTS`에 계정 이름을 쉼표로 나열하고, 이름마다 `MAIL_<이름>_ADDRESS`, `MAIL_<이름>_PASSWORD`, `MAIL_<이름>_FULL_NAME`(선택)을 줍니다. 이름은 영문자로 시작하는 영문자, 숫자, `-`, `_`이고 32자까지입니다. 변수 이름에서는 이름을 대문자로 바꾸고 `-`를 `_`로 씁니다(`naver-a`는 `MAIL_NAVER_A_ADDRESS`). `MAIL_ACCOUNTS`가 있으면 `MAIL_ADDRESS`, `MAIL_PASSWORD`, `MAIL_FULL_NAME`은 읽지 않습니다. 같은 서비스의 계정이 둘이어도 됩니다.
+
+```json
+{
+  "mcpServers": {
+    "mail": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
+      "env": {
+        "MAIL_ACCOUNTS": "naver-a,naver-b,daum",
+        "MAIL_NAVER_A_ADDRESS": "a_id@naver.com",
+        "MAIL_NAVER_A_PASSWORD": "your_app_password",
+        "MAIL_NAVER_B_ADDRESS": "b_id@naver.com",
+        "MAIL_NAVER_B_PASSWORD": "your_app_password",
+        "MAIL_DAUM_ADDRESS": "your_id@daum.net",
+        "MAIL_DAUM_PASSWORD": "your_imap_password"
+      }
+    }
+  }
+}
+```
+
+모든 도구가 선택 인자 `account`(계정 이름, 대소문자 구분 없음)를 받습니다. 계정이 여러 개일 때 `account`를 생략하면 이렇게 동작합니다.
+
+| 도구 | `account`를 생략하면 |
+|------|------|
+| `get_profile`, `search_emails`, `list_folders`, `list_drafts` | 모든 계정에서 실행하고 `[{"account", "address", "result"}]`로 계정별로 묶어 돌려줍니다. 계정들은 나란히 실행되고, 실패한 계정은 `result` 대신 `error`를 담을 뿐 나머지는 계속됩니다 |
+| `read_email`, `read_thread`, `download_attachment`, `create_draft`, `send_email`, `create_folder`, `move_emails`, `mark_read`, `trash_emails` | 오류. 어느 계정인지 `account`로 지정해야 합니다 |
+
+- 쓰기 도구에 기본 계정이 없는 것은 메일이 뜻하지 않은 계정에서 나가거나 지워지지 않게 하려는 것입니다.
+- 계정이 여러 개일 때 `account`를 주면 결과가 어느 계정의 것인지 알 수 있습니다. 객체 결과에는 `"account"` 필드가 붙고, 리스트 결과(`list_folders`, `list_drafts`, `read_thread`)는 `{"account": ..., "result": [...]}`로 감쌉니다.
+- UID와 폴더는 계정마다 따로이므로, `search_emails` 결과의 UID는 그 결과가 속한 계정과 함께 써야 합니다.
+- 전 계정 검색에서 `folder`, `page`, `page_size`는 계정마다 따로 적용됩니다. 계정들이 나란히 실행되므로 가장 느린 계정만큼 걸리고, 네이버는 헤더 조회가 느려서 보통 그 계정이 됩니다.
+- 계정이 하나뿐이면 `MAIL_ACCOUNTS` 없이 지금까지처럼 쓰면 됩니다. `account`는 생략할 수 있고 결과에도 `account` 필드가 붙지 않습니다.
+- 플러그인은 계정 하나만 받으므로 `MAIL_ACCOUNTS`를 넘기지 않습니다. 여러 계정은 위처럼 서버를 직접 등록하세요.
+
 ## Tools Reference
+
+모든 도구는 선택 인자 `account`를 받습니다. 여러 계정을 쓸 때만 필요하고, 규칙은 [Multiple Accounts](#multiple-accounts)에 있으며 아래 표에는 적지 않았습니다.
 
 ### get_profile
 계정 프로필 조회. 파라미터 없음.
@@ -307,7 +348,9 @@ README.en.md, README.ja.md  README 번역본
 |-------|----------|
 | `IMAP authentication failed` | 앱 비밀번호 확인. 계정 비밀번호가 아닌 애플리케이션 비밀번호 사용 |
 | `Cannot connect to IMAP server` | 네트워크 확인, IMAP 사용 설정 확인 |
-| `Missing required environment variables` | `MAIL_ADDRESS`, `MAIL_PASSWORD` 환경변수 설정 |
+| `Missing required environment variables` | `MAIL_ADDRESS`, `MAIL_PASSWORD` 환경변수 설정(여러 계정이면 오류가 알려 주는 `MAIL_<이름>_*`) |
+| `account is required because more than one account is configured` | 계정이 여러 개일 때 이 도구는 `account`로 계정 이름을 지정해야 함 |
+| `Unknown account` | 오류 메시지가 알려 주는 이름 중 하나를 `account`에 사용 |
 | `Unsupported mail domain` | 지원 도메인(`naver.com`, `daum.net`, `hanmail.net`, `kakao.com`)의 주소인지 확인 |
 | `Folder not found` | `list_folders` 도구로 사용 가능한 폴더명 확인 |
 | `Failed to spawn process` | `command`에 `uvx`의 절대 경로 사용 (`which uvx`로 확인) |

@@ -48,10 +48,15 @@ def test_server_runs_the_console_script_from_this_repository() -> None:
     assert server["args"] == ["--from", f"git+{repository}", script.group(1)]
 
 
-def test_server_env_is_what_server_py_reads() -> None:
-    source = (ROOT / "src" / "korean_mail_mcp" / "server.py").read_text(encoding="utf-8")
-    read = set(re.findall(r'os\.environ\.get\("(\w+)"', source))
-    assert set(_server()["env"]) == read
+def test_server_env_is_what_the_server_reads() -> None:
+    package = ROOT / "src" / "korean_mail_mcp"
+    read = set()
+    for name in ("server.py", "accounts.py"):
+        source = (package / name).read_text(encoding="utf-8")
+        read |= set(re.findall(r'environ\.get\("(\w+)"', source))
+    # the plugin has one account; MAIL_ACCOUNTS (several accounts) is for servers registered by hand
+    assert set(_server()["env"]) == read - {"MAIL_ACCOUNTS"}
+    assert "MAIL_ACCOUNTS" in read
 
 
 def test_every_user_config_reference_is_declared_and_used() -> None:

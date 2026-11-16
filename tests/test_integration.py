@@ -136,10 +136,10 @@ def test_missing_env_vars():
     """Test that missing env vars raise ValueError."""
     saved = os.environ.pop("MAIL_ADDRESS", None)
     try:
-        from korean_mail_mcp.server import _get_credentials
+        from korean_mail_mcp.accounts import load_accounts
 
         try:
-            _get_credentials()
+            load_accounts()
             print("  FAIL: Should have raised ValueError")
             return False
         except ValueError as e:

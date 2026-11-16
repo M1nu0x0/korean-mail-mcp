@@ -3,11 +3,17 @@
 ## Project Overview
 
 네이버·다음·카카오 메일 MCP 서버 (Python, mcp 2.x의 MCPServer).
-chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나가 계정 하나를 맡고, 접속 서버는 `MAIL_ADDRESS`의 도메인으로 정한다(`providers.py`).
+chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나는 기본으로 계정 하나를 맡고(`MAIL_ADDRESS`), `MAIL_ACCOUNTS`에 이름을 나열하면 여러 계정을 맡는다(`MAIL_<NAME>_ADDRESS` 등, `accounts.py`). 접속 서버는 각 주소의 도메인으로 정한다(`providers.py`).
 
 ## Tools (13개)
 
 `get_profile`, `search_emails`, `read_email`, `read_thread`, `list_folders`, `create_draft`, `list_drafts`, `send_email`, `download_attachment`, `create_folder`, `move_emails`, `mark_read`, `trash_emails`
+
+## Accounts
+
+- 도구 13개 모두 선택 인자 `account`를 받는다. 계정이 여러 개일 때 `account`를 생략하면 읽기 전용 4개(`get_profile`, `search_emails`, `list_folders`, `list_drafts`)는 모든 계정에서 나란히 실행해 `[{account, address, result|error}]`로 돌려주고, 나머지 9개는 오류다. 쓰기 도구에 기본 계정을 두지 않는 것이 의도다(엉뚱한 계정에서 발송·삭제 방지). 새 도구를 추가하면 어느 쪽인지 정하고 `tests/test_accounts.py`의 `ONE_ACCOUNT_TOOLS`나 `EACH_ACCOUNT_TOOLS`에 넣는다.
+- 계정이 하나면 결과에 `account` 필드가 붙지 않아 예전과 같다. 여러 개면 dict 결과에는 `account` 필드가 붙고, 리스트 결과는 `{account, result}`로 감싼다(`_run_one`).
+- `MAIL_ACCOUNTS`는 플러그인이 넘기지 않는다(플러그인은 계정 하나). 환경변수 이름은 `server.py`와 `accounts.py`의 `environ.get("…")` 리터럴로 `tests/test_plugin.py`가 검사한다.
 
 ## Plugin
 
@@ -28,7 +34,7 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 
 ## Testing
 
-- 단위 테스트: `uv run pytest` (계정 불필요, `tests/test_unit.py`와 `tests/test_plugin.py`, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
+- 단위 테스트: `uv run pytest` (계정 불필요, `tests/test_unit.py`, `tests/test_accounts.py`, `tests/test_plugin.py`, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
 - 정적 검사: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
 - 플러그인 검사: `claude plugin validate .`, `claude plugin validate plugins/korean-mail-mcp`, `cd site && npm ci && npm run build` (`plugin.yml`이 CI와 매일 돌림). 플러그인 파일끼리의 일치는 `uv run pytest`의 `tests/test_plugin.py`가 본다.
 - 통합 테스트: `uv run python -m tests.test_integration` (실제 계정 필요, CI에서 돌리지 않음)

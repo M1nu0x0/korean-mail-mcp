@@ -10,7 +10,7 @@
 Naver、Daum、Kakao のメールを Claude から使えるようにする Claude Code プラグイン兼 MCP(Model Context Protocol)サーバーです。
 [chanmuzi/naver-mail-mcp](https://github.com/chanmuzi/naver-mail-mcp) の fork で、Daum と Kakao への対応と、メールボックスを整理するツールを加えています。
 
-サーバープロセス 1 つが 1 アカウントを担当し、接続先のサーバーはメールアドレスのドメインで決まります。
+サーバープロセス 1 つは既定で 1 アカウントを担当し(`MAIL_ACCOUNTS` で複数のアカウントを任せることもできます)、接続先のサーバーはメールアドレスのドメインで決まります。
 
 **[Website](https://m1nu0x0.github.io/korean-mail-mcp/ja/) · [Releases](https://github.com/M1nu0x0/korean-mail-mcp/releases) · [Changelog](CHANGELOG.md)**
 
@@ -70,7 +70,7 @@ Claude Desktop では、プロンプト横の `+` → Plugins → Add marketplac
 
 IMAP 用のパスワードの入手方法は、下の [Prerequisites](#prerequisites) にあります。
 
-プラグインが担当するのは 1 アカウントです。複数のアカウントを使う場合や、Claude Code 以外の MCP クライアントで使う場合は、下の [MCP Client Configuration](#mcp-client-configuration) のようにサーバーを手動で登録します。
+プラグインが担当するのは 1 アカウントです。複数のアカウントを使う場合や、Claude Code 以外の MCP クライアントで使う場合は、下の [MCP Client Configuration](#mcp-client-configuration) のようにサーバーを手動で登録します。複数のアカウントを 1 つのサーバーにまとめることもできます([Multiple Accounts](#multiple-accounts))。
 
 無効にするには `claude plugin disable korean-mail-mcp`、削除するには `claude plugin uninstall korean-mail-mcp` を実行します。
 
@@ -136,10 +136,51 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 | `MAIL_ADDRESS` | Yes | メールアドレス。ドメインでサービスが決まる |
 | `MAIL_PASSWORD` | Yes | IMAP 用のパスワード(アカウントのパスワードではない) |
 | `MAIL_FULL_NAME` | No | 送信メールの表示名 |
+| `MAIL_ACCOUNTS` | No | 複数のアカウントの名前の一覧。あると上の 3 つの代わりに `MAIL_<名前>_*` を読む。[Multiple Accounts](#multiple-accounts) 参照 |
 
 プラグインは上の 3 つを `mail_address`、`mail_password`、`mail_full_name` として受け取り、同じ名前の環境変数としてサーバーに渡します。
 
+## Multiple Accounts
+
+1 つのサーバーで複数のアカウントを扱うには、`MAIL_ACCOUNTS` にアカウント名をカンマ区切りで並べ、名前ごとに `MAIL_<名前>_ADDRESS`、`MAIL_<名前>_PASSWORD`、`MAIL_<名前>_FULL_NAME`(任意)を渡します。名前は英字で始まり、英字、数字、`-`、`_` を使えて、32 文字までです。変数名では名前を大文字にし、`-` を `_` と書きます(`naver-a` は `MAIL_NAVER_A_ADDRESS`)。`MAIL_ACCOUNTS` があると、`MAIL_ADDRESS`、`MAIL_PASSWORD`、`MAIL_FULL_NAME` は読みません。同じサービスのアカウントが 2 つでも構いません。
+
+```json
+{
+  "mcpServers": {
+    "mail": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
+      "env": {
+        "MAIL_ACCOUNTS": "naver-a,naver-b,daum",
+        "MAIL_NAVER_A_ADDRESS": "a_id@naver.com",
+        "MAIL_NAVER_A_PASSWORD": "your_app_password",
+        "MAIL_NAVER_B_ADDRESS": "b_id@naver.com",
+        "MAIL_NAVER_B_PASSWORD": "your_app_password",
+        "MAIL_DAUM_ADDRESS": "your_id@daum.net",
+        "MAIL_DAUM_PASSWORD": "your_imap_password"
+      }
+    }
+  }
+}
+```
+
+すべてのツールが任意の引数 `account`(アカウント名、大文字小文字は区別しない)を受け取ります。アカウントが複数のとき、`account` を省略すると次のように動きます。
+
+| ツール | `account` を省略すると |
+|------|------|
+| `get_profile`、`search_emails`、`list_folders`、`list_drafts` | すべてのアカウントで実行し、`[{"account", "address", "result"}]` としてアカウントごとにまとめて返します。アカウントは並行して実行され、失敗したアカウントは `result` の代わりに `error` を持つだけで、残りは続行されます |
+| `read_email`、`read_thread`、`download_attachment`、`create_draft`、`send_email`、`create_folder`、`move_emails`、`mark_read`、`trash_emails` | エラー。どのアカウントかを `account` で指定する必要があります |
+
+- メールを送る、変更するツールに既定のアカウントがないのは、意図しないアカウントからメールが出たり、削除されたりしないようにするためです。
+- アカウントが複数のとき `account` を渡すと、結果がどのアカウントのものか分かります。オブジェクトの結果には `"account"` フィールドが付き、リストの結果(`list_folders`、`list_drafts`、`read_thread`)は `{"account": ..., "result": [...]}` の形で包まれます。
+- UID とフォルダーはアカウントごとに別なので、`search_emails` の結果の UID は、その結果が属するアカウントと一緒に使います。
+- 全アカウントの検索では、`folder`、`page`、`page_size` はアカウントごとに別に適用されます。アカウントは並行して実行されるので、最も遅いアカウント分の時間がかかり、Naver はヘッダー取得が遅いため、たいていそれになります。
+- アカウントが 1 つだけなら、`MAIL_ACCOUNTS` なしでこれまでどおり使えます。`account` は省略でき、結果に `account` フィールドは付きません。
+- プラグインは 1 アカウントだけを受け取り、`MAIL_ACCOUNTS` は渡しません。複数のアカウントは、上のようにサーバーを手動で登録してください。
+
 ## Tools Reference
+
+すべてのツールが任意の引数 `account` を受け取ります。複数のアカウントを使うときだけ必要で、規則は [Multiple Accounts](#multiple-accounts) にあり、下の表には載せていません。
 
 ### get_profile
 アカウントのプロフィールを取得します。パラメーターはありません。
@@ -307,7 +348,9 @@ README.en.md, README.ja.md  README の翻訳
 |--------|------|
 | `IMAP authentication failed` | アプリケーションパスワードを確認する。アカウントのパスワードではなくアプリケーションパスワードを使う |
 | `Cannot connect to IMAP server` | ネットワークと、IMAP が有効になっているかを確認する |
-| `Missing required environment variables` | `MAIL_ADDRESS` と `MAIL_PASSWORD` を設定する |
+| `Missing required environment variables` | `MAIL_ADDRESS` と `MAIL_PASSWORD` を設定する(複数のアカウントなら、エラーが示す `MAIL_<名前>_*`) |
+| `account is required because more than one account is configured` | アカウントが複数のとき、このツールは `account` でどのアカウントかを指定する必要がある |
+| `Unknown account` | エラーが示す名前のどれかを `account` に使う |
 | `Unsupported mail domain` | 対応するドメイン(`naver.com`、`daum.net`、`hanmail.net`、`kakao.com`)のアドレスか確認する |
 | `Folder not found` | `list_folders` ツールで使えるフォルダ名を確認する |
 | `Failed to spawn process` | `command` に `uvx` の絶対パスを使う(`which uvx` で確認) |

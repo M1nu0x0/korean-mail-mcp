@@ -64,4 +64,4 @@ include = ["src", "tests"]
 typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/test_unit.py", "tests/test_plugin.py"]
+testpaths = ["tests/test_unit.py", "tests/test_accounts.py", "tests/test_plugin.py"]

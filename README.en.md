@@ -10,7 +10,7 @@
 A Claude Code plugin and MCP (Model Context Protocol) server that lets Claude use Naver, Daum and Kakao mail.
 It is a fork of [chanmuzi/naver-mail-mcp](https://github.com/chanmuzi/naver-mail-mcp) that adds Daum and Kakao support and tools for tidying a mailbox.
 
-One server process serves one account, and the servers it connects to are chosen by the domain of the email address.
+One server process serves one account by default (`MAIL_ACCOUNTS` lets it serve several), and the servers it connects to are chosen by the domain of the email address.
 
 **[Website](https://m1nu0x0.github.io/korean-mail-mcp/) · [Releases](https://github.com/M1nu0x0/korean-mail-mcp/releases) · [Changelog](CHANGELOG.md)**
 
@@ -70,7 +70,7 @@ When you enable the plugin, Claude Code asks for three values.
 
 How to get the IMAP password is under [Prerequisites](#prerequisites).
 
-The plugin serves one account. For several accounts, or for an MCP client other than Claude Code, register the server by hand as under [MCP Client Configuration](#mcp-client-configuration).
+The plugin serves one account. For several accounts, or for an MCP client other than Claude Code, register the server by hand as under [MCP Client Configuration](#mcp-client-configuration). Several accounts can also share one server ([Multiple Accounts](#multiple-accounts)).
 
 To turn it off run `claude plugin disable korean-mail-mcp`, and to remove it `claude plugin uninstall korean-mail-mcp`.
 
@@ -136,10 +136,51 @@ The tools are listed per server, so use `get_profile` to see which account a ser
 | `MAIL_ADDRESS` | Yes | The email address. Its domain picks the service |
 | `MAIL_PASSWORD` | Yes | The password for IMAP (not the account password) |
 | `MAIL_FULL_NAME` | No | Display name on mail you send |
+| `MAIL_ACCOUNTS` | No | Names of several accounts. When set, `MAIL_<NAME>_*` is read in place of the three above. See [Multiple Accounts](#multiple-accounts) |
 
 The plugin takes these three as `mail_address`, `mail_password` and `mail_full_name` and passes them to the server as the environment variables above.
 
+## Multiple Accounts
+
+To serve several accounts from one server, list their names in `MAIL_ACCOUNTS`, separated by commas, and give each name `MAIL_<NAME>_ADDRESS`, `MAIL_<NAME>_PASSWORD` and `MAIL_<NAME>_FULL_NAME` (optional). A name starts with a letter, may hold letters, digits, `-` and `_`, and is at most 32 characters. In the variable names the name is written in upper case with `-` as `_` (`naver-a` reads `MAIL_NAVER_A_ADDRESS`). When `MAIL_ACCOUNTS` is set, `MAIL_ADDRESS`, `MAIL_PASSWORD` and `MAIL_FULL_NAME` are not read. Two accounts at the same service are fine.
+
+```json
+{
+  "mcpServers": {
+    "mail": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
+      "env": {
+        "MAIL_ACCOUNTS": "naver-a,naver-b,daum",
+        "MAIL_NAVER_A_ADDRESS": "a_id@naver.com",
+        "MAIL_NAVER_A_PASSWORD": "your_app_password",
+        "MAIL_NAVER_B_ADDRESS": "b_id@naver.com",
+        "MAIL_NAVER_B_PASSWORD": "your_app_password",
+        "MAIL_DAUM_ADDRESS": "your_id@daum.net",
+        "MAIL_DAUM_PASSWORD": "your_imap_password"
+      }
+    }
+  }
+}
+```
+
+Every tool takes an optional `account` argument (the account name, case-insensitive). With several accounts, leaving it out works like this:
+
+| Tools | Without `account` |
+|-------|------|
+| `get_profile`, `search_emails`, `list_folders`, `list_drafts` | Run on every account and return `[{"account", "address", "result"}]`, one entry per account. The accounts run side by side, and one that fails carries an `error` in place of `result` without stopping the rest |
+| `read_email`, `read_thread`, `download_attachment`, `create_draft`, `send_email`, `create_folder`, `move_emails`, `mark_read`, `trash_emails` | An error: `account` must say which one |
+
+- Tools that change or send mail have no default account, so that mail never leaves from, or is deleted in, an account you did not mean.
+- With several accounts, a result tells you which account it came from when you pass `account`: an object result gets an `"account"` field, and a list result (`list_folders`, `list_drafts`, `read_thread`) is wrapped as `{"account": ..., "result": [...]}`.
+- UIDs and folders belong to one account, so use a UID from `search_emails` with the account its result is listed under.
+- In a search over every account, `folder`, `page` and `page_size` apply to each account on its own. The accounts run side by side, so it takes as long as the slowest one, which is usually Naver because fetching headers there is slow.
+- With a single account, use the server as before without `MAIL_ACCOUNTS`: `account` can be left out and the result has no `account` field.
+- The plugin takes one account and does not pass `MAIL_ACCOUNTS`. For several accounts, register the server by hand as above.
+
 ## Tools Reference
+
+Every tool takes an optional `account` argument. It matters only with several accounts, its rules are under [Multiple Accounts](#multiple-accounts), and the tables below leave it out.
 
 ### get_profile
 Get the account profile. No parameters.
@@ -307,7 +348,9 @@ The plugin lives in `plugins/korean-mail-mcp/` and the marketplace points at it 
 |-------|----------|
 | `IMAP authentication failed` | Check the application password. Use an application password, not the account password |
 | `Cannot connect to IMAP server` | Check the network and that IMAP is turned on |
-| `Missing required environment variables` | Set `MAIL_ADDRESS` and `MAIL_PASSWORD` |
+| `Missing required environment variables` | Set `MAIL_ADDRESS` and `MAIL_PASSWORD` (with several accounts, the `MAIL_<NAME>_*` variables the error names) |
+| `account is required because more than one account is configured` | With several accounts this tool needs `account` to say which one |
+| `Unknown account` | Use one of the names the error lists as `account` |
 | `Unsupported mail domain` | Check that the address is in a supported domain (`naver.com`, `daum.net`, `hanmail.net`, `kakao.com`) |
 | `Folder not found` | Use the `list_folders` tool to see the folder names available |
 | `Failed to spawn process` | Use the absolute path of `uvx` as `command` (`which uvx` shows it) |
