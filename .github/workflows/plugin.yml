@@ -1,0 +1,75 @@
+name: Plugin
+
+# The Claude Code plugin (.claude-plugin/, plugins/) and its GitHub Pages site (site/). CI covers the Python
+# server; this workflow covers what a user installs and reads. It also runs daily against the latest
+# Claude Code, which can change how plugins and their MCP servers are loaded.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "27 18 * * *" # 03:27 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Record the Claude Code version
+        shell: bash
+        run: echo "::notice title=Claude Code (${{ runner.os }})::$(claude --version)"
+
+      - name: Validate the marketplace
+        run: claude plugin validate .
+
+      - name: Validate the plugin
+        run: claude plugin validate plugins/korean-mail-mcp
+
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build the site and check it as a crawler reads it
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+      - name: The sitemap's lastmod moves with the site's text
+        if: github.event_name == 'pull_request'
+        working-directory: site
+        run: |
+          git fetch -q --depth=1 origin "$GITHUB_BASE_REF"
+          npx plugin-site lastmod FETCH_HEAD

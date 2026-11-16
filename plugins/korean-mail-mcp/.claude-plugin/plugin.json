@@ -1,0 +1,34 @@
+{
+  "name": "korean-mail-mcp",
+  "version": "0.1.0",
+  "description": "Connects a Naver, Daum or Kakao mailbox to Claude through an MCP server: search, read, draft, send, move and trash mail over IMAP and SMTP. One server serves one account, chosen by the domain of the address",
+  "author": {
+    "name": "M1nu0x0",
+    "url": "https://github.com/M1nu0x0"
+  },
+  "homepage": "https://m1nu0x0.github.io/korean-mail-mcp/",
+  "repository": "https://github.com/M1nu0x0/korean-mail-mcp",
+  "license": "MIT",
+  "keywords": ["claude-code", "plugin", "mcp", "email", "imap", "smtp", "korean", "naver", "daum", "kakao"],
+  "userConfig": {
+    "mail_address": {
+      "type": "string",
+      "title": "Mail address",
+      "description": "Full address of the account, such as your_id@naver.com. Its domain (naver.com, daum.net, hanmail.net or kakao.com) picks the mail service",
+      "required": true
+    },
+    "mail_password": {
+      "type": "string",
+      "title": "IMAP password",
+      "description": "The password for IMAP and SMTP, not the account password: a Naver application password, or the one Daum or Kakao shows on its IMAP settings page",
+      "sensitive": true,
+      "required": true
+    },
+    "mail_full_name": {
+      "type": "string",
+      "title": "Display name",
+      "description": "Name shown as the sender of mail you send. Leave empty to send with the address alone",
+      "default": ""
+    }
+  }
+}

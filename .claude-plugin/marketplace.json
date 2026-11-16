@@ -1,0 +1,6 @@
+{
+  "name": "korean-mail-mcp",
+  "owner": { "name": "M1nu0x0", "url": "https://github.com/M1nu0x0" },
+  "description": "A Claude Code plugin that connects a Naver, Daum or Kakao mailbox: search, read, draft, send and tidy mail over IMAP and SMTP",
+  "plugins": [{ "name": "korean-mail-mcp", "source": "./plugins/korean-mail-mcp" }]
+}

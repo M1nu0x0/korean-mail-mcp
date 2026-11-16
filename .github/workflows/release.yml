@@ -1,0 +1,36 @@
+name: Release check
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: tag matches plugin.json and pyproject.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Compare the tag with the plugin's and the server's version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          plugin=$(jq -r .version plugins/korean-mail-mcp/.claude-plugin/plugin.json)
+          server=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)
+          status=0
+          if [ "$tag" != "$plugin" ]; then
+            echo "::error title=version mismatch::tag $GITHUB_REF_NAME, but plugins/korean-mail-mcp/.claude-plugin/plugin.json says $plugin"
+            status=1
+          fi
+          if [ "$tag" != "$server" ]; then
+            echo "::error title=version mismatch::tag $GITHUB_REF_NAME, but pyproject.toml says $server"
+            status=1
+          fi
+          if [ "$status" = 0 ]; then
+            echo "::notice title=version matches::tag $GITHUB_REF_NAME = plugin.json $plugin = pyproject.toml $server"
+          fi
+          exit "$status"

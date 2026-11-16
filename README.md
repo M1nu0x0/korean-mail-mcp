@@ -1,9 +1,18 @@
 # korean-mail-mcp
 
-네이버·다음·카카오 메일을 MCP 클라이언트에서 쓰게 해 주는 MCP(Model Context Protocol) 서버입니다.
+[![release](https://img.shields.io/github/v/release/M1nu0x0/korean-mail-mcp)](https://github.com/M1nu0x0/korean-mail-mcp/releases)
+[![CI](https://github.com/M1nu0x0/korean-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/M1nu0x0/korean-mail-mcp/actions/workflows/ci.yml)
+[![Plugin](https://github.com/M1nu0x0/korean-mail-mcp/actions/workflows/plugin.yml/badge.svg)](https://github.com/M1nu0x0/korean-mail-mcp/actions/workflows/plugin.yml)
+[![license](https://img.shields.io/github/license/M1nu0x0/korean-mail-mcp)](LICENSE)
+
+**한국어** | [English](README.en.md) | [日本語](README.ja.md)
+
+네이버·다음·카카오 메일을 Claude에서 쓰게 해 주는 Claude Code 플러그인이자 MCP(Model Context Protocol) 서버입니다.
 [chanmuzi/naver-mail-mcp](https://github.com/chanmuzi/naver-mail-mcp)의 fork이며, 다음·카카오 지원과 메일함 정리 도구를 더했습니다.
 
 서버 프로세스 하나가 계정 하나를 맡고, 접속할 서버는 이메일 주소의 도메인으로 정합니다.
+
+**[Website](https://m1nu0x0.github.io/korean-mail-mcp/ko/) · [Releases](https://github.com/M1nu0x0/korean-mail-mcp/releases) · [Changelog](CHANGELOG.md)**
 
 | 도메인 | IMAP | SMTP |
 |--------|------|------|
@@ -31,9 +40,41 @@
 
 이 서비스들에는 Gmail의 라벨이 없습니다. 메일 하나는 폴더 하나에만 들어가므로, 분류는 폴더를 만들고 옮기는 방식으로 합니다.
 
-## Installation
+## 설치
 
-PyPI에는 배포되어 있지 않습니다. `uvx`로 이 저장소에서 바로 실행합니다.
+### Claude Code 플러그인
+
+Claude Code 터미널 프롬프트에서:
+
+```
+/plugin install korean-mail-mcp --marketplace M1nu0x0/korean-mail-mcp
+```
+
+`Add marketplace?`에 `y`를 누르고 scope는 user를 고릅니다. 셸에서는 이렇게 설치합니다.
+
+```sh
+claude plugin install korean-mail-mcp --marketplace M1nu0x0/korean-mail-mcp
+```
+
+Claude Desktop에서는 프롬프트 옆 `+` → Plugins → Add marketplace에 `M1nu0x0/korean-mail-mcp`를 넣고 `korean-mail-mcp`를 추가합니다. 설치한 뒤 새 세션부터 적용됩니다.
+
+[uv](https://docs.astral.sh/uv/)가 설치돼 있어서 `uvx`가 `PATH`에 있어야 합니다. 서버는 이 저장소에서 `uvx`로 바로 실행되고(PyPI에는 배포되어 있지 않음), 따로 설치할 것은 없습니다.
+
+플러그인을 켜면 Claude Code가 세 가지를 묻습니다.
+
+| 항목 | 필수 | 설명 |
+|------|------|------|
+| Mail address (`mail_address`) | Yes | 이메일 주소 전체. 도메인으로 서비스를 정함 |
+| IMAP password (`mail_password`) | Yes | IMAP용 비밀번호(계정 비밀번호 아님). `settings.json`이 아니라 민감한 값으로 따로 보관됨 |
+| Display name (`mail_full_name`) | No | 보내는 메일에 표시할 이름. 비워 두면 주소만 씀 |
+
+IMAP용 비밀번호를 받는 방법은 아래 [Prerequisites](#prerequisites)에 있습니다.
+
+플러그인은 계정 하나를 담당합니다. 계정이 여러 개이거나 Claude Code 밖의 MCP 클라이언트에서 쓴다면 아래 [MCP Client Configuration](#mcp-client-configuration)처럼 서버를 직접 등록합니다.
+
+끄려면 `claude plugin disable korean-mail-mcp`, 제거하려면 `claude plugin uninstall korean-mail-mcp`를 실행합니다.
+
+### uvx로 직접 실행
 
 ```bash
 uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
@@ -41,7 +82,7 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 
 ## MCP Client Configuration
 
-계정마다 서버를 하나씩 등록합니다.
+플러그인을 쓰지 않는 경우입니다. 계정마다 서버를 하나씩 등록합니다.
 
 ```json
 {
@@ -67,11 +108,11 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 }
 ```
 
-> **주의:** Claude Desktop은 시스템 PATH를 상속하지 않습니다. `command`에는 `uvx`의 **절대 경로**를 쓰세요. `which uvx`로 확인할 수 있습니다.
+> **주의:** Claude Desktop은 시스템 PATH를 상속하지 않습니다. `command`에는 `uvx`의 **절대 경로**를 쓰세요. `which uvx`로 확인할 수 있습니다. 플러그인의 `.mcp.json`은 `uvx`를 이름으로 부르므로, 같은 문제로 서버가 시작되지 않으면 이 방식으로 직접 등록하세요.
 
 ## Prerequisites
 
-1. **Python 3.10+**
+1. **Python 3.10+** (`uvx`가 알아서 맞춰 줍니다)
 2. 메일 서비스에서 **IMAP/SMTP 사용** 설정
    - 네이버: 메일 → 설정 → POP3/IMAP 설정 → IMAP/SMTP 사용
    - 다음·카카오: 메일 → 설정 → IMAP/POP3 → IMAP 사용
@@ -86,6 +127,8 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 | `MAIL_ADDRESS` | Yes | 이메일 주소. 도메인으로 서비스를 정함 |
 | `MAIL_PASSWORD` | Yes | IMAP용 비밀번호 (계정 비밀번호 아님) |
 | `MAIL_FULL_NAME` | No | 발신 메일 표시 이름 |
+
+플러그인은 위의 세 값을 `mail_address`, `mail_password`, `mail_full_name`으로 받아 같은 이름의 환경변수로 서버에 넘깁니다.
 
 ## Tools Reference
 
@@ -217,7 +260,37 @@ uv run pytest
 
 # Integration tests against the real mail server (needs .env)
 uv run python -m tests.test_integration
+
+# The plugin and its site
+claude plugin validate .
+claude plugin validate plugins/korean-mail-mcp
+cd site && npm ci && npm run build   # 사이트 빌드와 검사(site/dist)
+cd site && npm run dev               # 로컬 미리보기
+cd site && npm run og                # 언어별 링크 미리보기 이미지 생성(Playwright 필요)
 ```
+
+`uv run pytest`에는 `tests/test_plugin.py`가 들어 있어서, 마켓플레이스와 `plugin.json`, `.mcp.json`, `pyproject.toml`, `server.py`가 서로 어긋나면(버전, 환경변수 이름, 필수 항목) 실패합니다.
+
+사이트는 [Astro](https://astro.build)와 공용 키트 [claude-plugin-site](https://github.com/M1nu0x0/claude-plugin-site)로 만듭니다. 문구는 모두 `site/src/site.json`에, 섹션 순서는 `site/src/pages/[...lang].astro`에 있습니다. `npm run build`는 언어별 페이지(`/`, `/ko/`, `/ja/`)와 `sitemap.xml`을 만든 뒤 크롤러가 읽는 그대로 검사하고, 하나라도 어긋나면 실패합니다. main에 병합되면 Pages 워크플로가 빌드해 배포합니다(레포 설정의 Pages 소스는 **GitHub Actions**여야 합니다). 내용이 바뀌면 `site/src/site.json`의 `updated`도 그날 날짜로 바꿉니다. 바꾸지 않으면 PR에서 CI가 경고합니다. `ask`, `answer`, `ogImageLine`, `ogImageText`를 바꾸면 `npm run og`로 `site/public/images/og*.png`도 다시 만들어 커밋합니다.
+
+새 버전은 `pyproject.toml`과 `plugins/korean-mail-mcp/.claude-plugin/plugin.json`의 `version`을 같이 올리는 PR을 병합한 뒤, 같은 버전으로 `vX.Y.Z` Release를 만듭니다. 태그가 생기면 CI가 태그와 두 `version`이 같은지 확인합니다. 플러그인의 `.mcp.json`은 서버를 버전에 고정하지 않고 이 저장소의 기본 브랜치에서 가져옵니다.
+
+## 구성
+
+```
+.claude-plugin/
+  marketplace.json      이 레포를 마켓플레이스로 등록
+plugins/korean-mail-mcp/
+  .claude-plugin/
+    plugin.json         플러그인 매니페스트, userConfig 세 개
+  .mcp.json             uvx로 서버를 띄우는 MCP 서버 정의
+src/korean_mail_mcp/    MCP 서버(Python)
+tests/                  단위 테스트(test_unit.py, test_plugin.py)와 통합 테스트
+site/                   GitHub Pages 사이트(Astro): src/site.json 번역, src/pages/ 페이지
+README.en.md, README.ja.md  README 번역본
+```
+
+플러그인은 `plugins/korean-mail-mcp/`에 따로 두고 마켓플레이스가 상대경로로 가리킵니다. claude.ai의 Add marketplace는 레포 루트를 통째로 플러그인으로 쓰는 구성을 받아주지 않는 경우가 있어서입니다.
 
 ## Troubleshooting
 
@@ -229,6 +302,7 @@ uv run python -m tests.test_integration
 | `Unsupported mail domain` | 지원 도메인(`naver.com`, `daum.net`, `hanmail.net`, `kakao.com`)의 주소인지 확인 |
 | `Folder not found` | `list_folders` 도구로 사용 가능한 폴더명 확인 |
 | `Failed to spawn process` | `command`에 `uvx`의 절대 경로 사용 (`which uvx`로 확인) |
+| 플러그인을 켰는데 도구가 안 보임 | 새 세션에서 확인하고, `claude plugin list`로 켜져 있는지 확인 |
 
 ## Technical Details
 

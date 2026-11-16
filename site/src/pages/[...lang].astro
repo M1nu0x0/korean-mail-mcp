@@ -1,0 +1,87 @@
+---
+// One page per language (/, /ko/, /ja/). The words are in src/site.json; this file is the order of the sections.
+import site from 'virtual:plugin-site'
+import { staticPaths } from '@m1nu0x0/claude-plugin-site'
+import PluginPage from '@m1nu0x0/claude-plugin-site/components/PluginPage.astro'
+import Hero from '@m1nu0x0/claude-plugin-site/components/Hero.astro'
+import Install from '@m1nu0x0/claude-plugin-site/components/Install.astro'
+import Faq from '@m1nu0x0/claude-plugin-site/components/Faq.astro'
+
+export const getStaticPaths = () => staticPaths(site)
+
+const { lang } = Astro.props
+const t = site.languages[lang].strings
+
+// The server's tools, each with a line in strings (tool_<name>).
+const tools = [
+  'get_profile', 'search_emails', 'read_email', 'read_thread', 'list_folders', 'create_draft', 'list_drafts',
+  'send_email', 'download_attachment', 'create_folder', 'move_emails', 'mark_read', 'trash_emails',
+] as const
+
+// The mail services, each with its domains (p<Name>) and its servers (p<Name>V) in strings.
+const providers = ['Naver', 'Daum', 'Kakao'] as const
+
+// Where the services differ: a term and its description (l<Name>, l<Name>V) in strings.
+const limits = ['DaumSearch', 'NaverSearch', 'DaumLimit', 'NaverLimit', 'Untested'] as const
+---
+<PluginPage lang={lang}>
+  <Hero slot="hero" lang={lang} />
+
+  <Install lang={lang} />
+
+  <section aria-labelledby="setup">
+    <h2 id="setup" set:html={t.setupTitle} />
+    <ol>
+      <li set:html={t.setup1} />
+      <li set:html={t.setup2} />
+      <li set:html={t.setup3} />
+    </ol>
+  </section>
+
+  <section aria-labelledby="providers">
+    <h2 id="providers" set:html={t.providersTitle} />
+    <p set:html={t.providersLead} />
+    <dl class="os">
+      {providers.map(p => (
+        <>
+          <dt set:html={t[`p${p}`]} />
+          <dd set:html={t[`p${p}V`]} />
+        </>
+      ))}
+    </dl>
+  </section>
+
+  <section aria-labelledby="tools">
+    <h2 id="tools" set:html={t.toolsTitle} />
+    <p set:html={t.toolsLead} />
+    <dl class="os">
+      {tools.map(name => (
+        <>
+          <dt><code>{name}</code></dt>
+          <dd set:html={t[`tool_${name}`]} />
+        </>
+      ))}
+    </dl>
+  </section>
+
+  <section aria-labelledby="how">
+    <h2 id="how" set:html={t.howTitle} />
+    <p set:html={t.how1} />
+    <p set:html={t.how2} />
+  </section>
+
+  <section aria-labelledby="limits">
+    <h2 id="limits" set:html={t.limitsTitle} />
+    <p set:html={t.limitsLead} />
+    <dl class="os">
+      {limits.map(k => (
+        <>
+          <dt set:html={t[`l${k}`]} />
+          <dd set:html={t[`l${k}V`]} />
+        </>
+      ))}
+    </dl>
+  </section>
+
+  <Faq lang={lang} />
+</PluginPage>

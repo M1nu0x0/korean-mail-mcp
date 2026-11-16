@@ -35,3 +35,7 @@ htmlcov/
 
 # OMC state
 .omc/
+
+# Claude Code plugin and site
+.mcpb-cache/
+node_modules/

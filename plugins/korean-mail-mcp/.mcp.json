@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "korean-mail": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
+      "env": {
+        "MAIL_ADDRESS": "${user_config.mail_address}",
+        "MAIL_PASSWORD": "${user_config.mail_password}",
+        "MAIL_FULL_NAME": "${user_config.mail_full_name}"
+      }
+    }
+  }
+}
