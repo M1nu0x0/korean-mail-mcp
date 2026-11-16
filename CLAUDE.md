@@ -11,7 +11,7 @@ chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나가 계정 하나를 
 
 ## Security
 
-보안 리뷰 완료 — 아래 패턴이 적용되어 있으며 반드시 유지할 것:
+아래 패턴은 반드시 유지할 것. 첨부 크기 제한은 메시지 전체를 받은 뒤에 검사하므로, 큰 메시지의 메모리 사용은 막지 못한다:
 - IMAP injection 방지
 - Header injection 방지
 - DoS 방지 (첨부파일 크기 제한 등)

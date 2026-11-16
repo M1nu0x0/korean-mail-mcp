@@ -195,7 +195,7 @@ uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp
 
 ### 폴더 이름
 
-`folder`와 `destination`에는 한글 이름(`영수증`)이나 `list_folders`가 돌려주는 `raw_name`을 쓸 수 있습니다. 이름에 `&`가 들어 있으면 `raw_name`을 쓰세요.
+`folder`와 `destination`에는 한글 이름(`영수증`)이나 `list_folders`가 돌려주는 `raw_name`을 쓸 수 있습니다.
 
 ## Development
 

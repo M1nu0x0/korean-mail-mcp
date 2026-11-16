@@ -6,6 +6,7 @@ import base64
 import contextlib
 import email
 import email.header
+import email.headerregistry
 import email.message
 import email.utils
 import imaplib
@@ -30,6 +31,7 @@ TIMEOUT = 30
 MAX_PAGE_SIZE = 100
 MAX_UIDS_PER_CALL = 500
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_THREAD_IDS = 50  # each ID costs three SEARCH commands
 ALLOWED_BODY_TYPES = {"text/plain", "text/html"}
 
 
@@ -69,11 +71,12 @@ def _sanitize_folder_name(folder: str) -> str:
 def _mailbox(folder: str) -> str:
     """Quote a folder for an IMAP command.
 
-    ASCII input is sent as given, so a raw_name from list_folders passes through.
-    Anything else is a display name and is encoded to Modified UTF-7.
+    Valid Modified UTF-7, such as a raw_name from list_folders, is sent as given.
+    Anything else (Korean, or ASCII like "R&D") is a display name and is encoded.
     """
     folder = _sanitize_folder_name(folder)
-    return f'"{folder if folder.isascii() else encode_mutf7(folder)}"'
+    is_raw = folder.isascii() and encode_mutf7(decode_mutf7(folder)) == folder
+    return f'"{folder if is_raw else encode_mutf7(folder)}"'
 
 
 def _uid_set(uids: list[str]) -> str:
@@ -86,14 +89,14 @@ def _uid_set(uids: list[str]) -> str:
 
 def _sanitize_message_id(value: str) -> str:
     """Reject Message-IDs containing characters that could break IMAP search."""
-    if not value or '"' in value or "\r" in value or "\n" in value:
+    if not value or '"' in value or not (value.isascii() and value.isprintable()):
         raise ValueError("Invalid Message-ID: contains prohibited characters.")
     return value
 
 
 def _sanitize_uid(uid: str) -> str:
     """Ensure UID contains only digits."""
-    if not uid or not uid.strip().isdigit():
+    if not uid or not re.fullmatch(r"[0-9]+", uid.strip()):
         raise ValueError(f"Invalid UID: must be a positive integer, got '{uid}'.")
     return uid.strip()
 
@@ -219,7 +222,14 @@ def encode_mutf7(text: str) -> str:
 
 
 def decode_mutf7(data: str) -> str:
-    """Decode Modified UTF-7 folder name to Unicode."""
+    """Decode Modified UTF-7 folder name to Unicode; malformed input comes back unchanged."""
+    try:
+        return _decode_mutf7(data)
+    except ValueError:
+        return data
+
+
+def _decode_mutf7(data: str) -> str:
     result = []
     i = 0
     while i < len(data):
@@ -232,7 +242,7 @@ def decode_mutf7(data: str) -> str:
                 padding = 4 - (len(b64_str) % 4)
                 if padding != 4:
                     b64_str += "=" * padding
-                decoded = base64.b64decode(b64_str).decode("utf-16-be")
+                decoded = base64.b64decode(b64_str, validate=True).decode("utf-16-be")
                 result.append(decoded)
             i = j + 1
         else:
@@ -245,8 +255,10 @@ def _parse_date(date_str: str | None) -> str:
     """Parse email date to ISO 8601 string."""
     if not date_str:
         return ""
-    parsed = email.utils.parsedate_to_datetime(date_str)
-    return parsed.isoformat()
+    try:
+        return email.utils.parsedate_to_datetime(date_str).isoformat()
+    except (TypeError, ValueError):
+        return ""
 
 
 def _parse_address(addr: str | None) -> str:
@@ -257,11 +269,14 @@ def _parse_address(addr: str | None) -> str:
 
 
 def _parse_address_list(header: str | None) -> list[str]:
-    """Parse comma-separated address list."""
+    """Parse an address list header; commas inside quoted display names stay in the name."""
     if not header:
         return []
-    addresses = header.split(",")
-    return [decode_header_value(a.strip()) for a in addresses if a.strip()]
+    return [
+        f"{decode_header_value(name)} <{addr}>" if name else addr
+        for name, addr in email.utils.getaddresses([header])
+        if addr
+    ]
 
 
 # --- IMAP Operations ---
@@ -270,7 +285,7 @@ def _parse_address_list(header: str | None) -> list[str]:
 
 def get_profile(conn: imaplib.IMAP4_SSL, email_address: str, full_name: str) -> Profile:
     """Get account profile with mailbox statistics."""
-    status, data = conn.select("INBOX")
+    status, data = conn.select("INBOX", readonly=True)
     if status != "OK":
         raise MailIMAPError("Failed to select INBOX.")
 
@@ -389,11 +404,6 @@ def _find_folder_by_role(conn: imaplib.IMAP4_SSL, role: str, fallback_names: lis
 def _find_drafts_folder(conn: imaplib.IMAP4_SSL) -> str:
     """Find the Drafts folder."""
     return _find_folder_by_role(conn, "\\Drafts", ["Drafts", "임시보관함", "&BCIENA0RBBQ-"])
-
-
-def _find_sent_folder(conn: imaplib.IMAP4_SSL) -> str:
-    """Find the Sent folder."""
-    return _find_folder_by_role(conn, "\\Sent", ["Sent Messages", "Sent", "보낸메일함"])
 
 
 _SEARCH_DATE_RE = re.compile(r"\d{1,2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}")
@@ -750,7 +760,6 @@ def _fetch_email_summary(conn: imaplib.IMAP4_SSL, uid: bytes) -> EmailSummary | 
         from_address=from_addr,
         date=date_str,
         is_read=is_read,
-        has_attachments=False,
     )
 
 
@@ -800,10 +809,13 @@ def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Emai
 
     for part_counter, part in enumerate(msg.walk(), start=1):
         content_type = part.get_content_type()
-        content_disposition = str(part.get("Content-Disposition", ""))
-
-        if "attachment" in content_disposition:
-            filename = part.get_filename()
+        filename = part.get_filename()
+        disposition = part.get_content_disposition()
+        # inline parts with a filename (images, PDFs) are files too. A bare Content-Type name=
+        # does not count: get_filename() falls back to it, and bodies sometimes carry one.
+        is_file = disposition == "attachment" or (disposition == "inline" and filename)
+        # message/rfc822 reports is_multipart() but is a file when attached, so test the type
+        if is_file and part.get_content_maintype() != "multipart":
             if filename:
                 filename = decode_header_value(filename)
             else:
@@ -861,13 +873,13 @@ def read_thread(conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX")
         raise FolderNotFoundError(f"Folder '{folder}' not found.")
 
     target_uid = None
-    status, data = conn.uid("SEARCH", f'HEADER Message-ID "{message_id}"')
+    status, data = conn.uid("SEARCH", "HEADER", "Message-ID", _search_string(message_id).decode())
     if status == "OK" and data[0]:
         uids = data[0].split()
         if uids:
             target_uid = uids[0]
 
-    all_message_ids = {message_id}
+    related_ids: list[str] = []
 
     if target_uid:
         status, data = conn.uid(
@@ -878,38 +890,19 @@ def read_thread(conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX")
                 if isinstance(part, tuple) and len(part) > 1:
                     header_data = part[1] if isinstance(part[1], bytes) else part[1].encode()
                     msg = email.message_from_bytes(header_data)
-                    refs = msg.get("References", "")
-                    if refs:
-                        all_message_ids.update(refs.split())
-                    irt = msg.get("In-Reply-To", "")
-                    if irt:
-                        all_message_ids.add(irt.strip())
+                    related_ids += msg.get("In-Reply-To", "").split()
+                    related_ids += reversed(msg.get("References", "").split())
 
+    # newest references first, so a header with thousands of IDs keeps the closest ones
+    searchable = [mid for mid in related_ids if mid.isascii() and mid.isprintable()]
+    thread_ids = list(dict.fromkeys([message_id, *searchable]))[:MAX_THREAD_IDS]
     all_uids = set()
-    for mid in all_message_ids:
-        safe_mid = mid.replace('"', "").strip()
-        if not safe_mid:
-            continue
-        try:
-            status, data = conn.uid("SEARCH", f'HEADER Message-ID "{safe_mid}"')
-            if status == "OK" and data[0]:
-                all_uids.update(data[0].split())
-        except imaplib.IMAP4.error:
-            continue
-
-        try:
-            status, data = conn.uid("SEARCH", f'HEADER References "{safe_mid}"')
-            if status == "OK" and data[0]:
-                all_uids.update(data[0].split())
-        except imaplib.IMAP4.error:
-            continue
-
-        try:
-            status, data = conn.uid("SEARCH", f'HEADER In-Reply-To "{safe_mid}"')
-            if status == "OK" and data[0]:
-                all_uids.update(data[0].split())
-        except imaplib.IMAP4.error:
-            continue
+    for mid in thread_ids:
+        for header in ("Message-ID", "References", "In-Reply-To"):
+            with contextlib.suppress(imaplib.IMAP4.error):
+                status, data = conn.uid("SEARCH", "HEADER", header, _search_string(mid).decode())
+                if status == "OK" and data[0]:
+                    all_uids.update(data[0].split())
 
     thread_emails = []
     for uid in all_uids:
@@ -965,7 +958,7 @@ def create_draft(
     msg = email.message.EmailMessage()
     if full_name:
         safe_name = _sanitize_header_value(full_name.strip())
-        msg["From"] = f"{safe_name} <{email_address}>"
+        msg["From"] = email.headerregistry.Address(display_name=safe_name, addr_spec=email_address)
     else:
         msg["From"] = email_address
     msg["To"] = ", ".join(to)

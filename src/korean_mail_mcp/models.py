@@ -54,7 +54,6 @@ class EmailSummary:
     from_address: str
     date: str
     is_read: bool
-    has_attachments: bool
 
 
 @dataclass

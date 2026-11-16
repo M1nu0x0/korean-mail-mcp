@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import smtplib
+from email.headerregistry import Address
 from email.message import EmailMessage
 
 from .providers import hosts_for
@@ -47,7 +48,7 @@ def send_email(
     msg = EmailMessage()
     if full_name:
         safe_name = _sanitize_header_value(full_name.strip())
-        msg["From"] = f"{safe_name} <{email_address}>"
+        msg["From"] = Address(display_name=safe_name, addr_spec=email_address)
     else:
         msg["From"] = email_address
     msg["To"] = ", ".join(to)

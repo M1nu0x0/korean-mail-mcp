@@ -17,7 +17,7 @@ from typing import cast
 
 import pytest
 
-from korean_mail_mcp import imap_client
+from korean_mail_mcp import imap_client, smtp_client
 from korean_mail_mcp.models import Folder, to_dict
 from korean_mail_mcp.providers import hosts_for
 
@@ -309,6 +309,129 @@ def test_build_search_criteria_matches_all_without_filters():
 def test_build_search_criteria_rejects_malformed_dates(date):
     with pytest.raises(ValueError, match="Invalid date"):
         imap_client._build_search_criteria(date, None, None)
+
+
+@pytest.mark.parametrize("date", ["not a date", "Mon, 32 Foo 2026 99:99:99 +0900"])
+def test_parse_date_returns_empty_for_malformed_dates(date):
+    assert imap_client._parse_date(date) == ""
+
+
+def test_parse_address_list_keeps_commas_inside_display_names():
+    header = '"Hong, Gildong" <hong@example.com>, =?UTF-8?B?7J2066aE?= <lee@example.com>, x@y.com'
+
+    addresses = imap_client._parse_address_list(header)
+
+    assert addresses == ["Hong, Gildong <hong@example.com>", "이름 <lee@example.com>", "x@y.com"]
+
+
+@pytest.mark.parametrize("uid", ["²", "١٢٣"])
+def test_sanitize_uid_rejects_unicode_digits(uid):
+    with pytest.raises(ValueError, match="Invalid UID"):
+        imap_client._sanitize_uid(uid)
+
+
+@pytest.mark.parametrize("raw", ["&", "&ABC", "&!!!-"])
+def test_decode_mutf7_returns_malformed_names_unchanged(raw):
+    assert imap_client.decode_mutf7(raw) == raw
+
+
+def test_mailbox_encodes_ascii_names_that_are_not_modified_utf7():
+    assert imap_client._mailbox("R&D") == '"R&-D"'
+    assert imap_client._mailbox("R&-D") == '"R&-D"'
+
+
+def test_read_thread_escapes_backslashes_in_message_id(imap):
+    conn, commands = imap
+
+    imap_client.read_thread(conn, "<a\\b@example.com>")
+
+    assert commands[1] == b'UID SEARCH HEADER Message-ID "<a\\\\b@example.com>"'
+
+
+def test_read_thread_rejects_non_ascii_message_id(imap):
+    conn, _ = imap
+
+    with pytest.raises(ValueError, match="Invalid Message-ID"):
+        imap_client.read_thread(conn, "<메일@example.com>")
+
+
+class _OneMessage:
+    def __init__(self, raw: bytes):
+        self.raw = raw
+
+    def select(self, *args, **kwargs):
+        return "OK", [b"1"]
+
+    def uid(self, *args):
+        return "OK", [(b"1 (UID 5 FLAGS () BODY[] {%d}" % len(self.raw), self.raw), b")"]
+
+
+def test_read_email_lists_inline_parts_with_a_filename_as_attachments():
+    raw = (
+        b'Content-Type: multipart/related; boundary="b"\r\n\r\n'
+        b"--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n"
+        b"--b\r\nContent-Type: image/png\r\nContent-Disposition: inline; filename=a.png\r\n"
+        b"Content-Transfer-Encoding: base64\r\n\r\niVBORw==\r\n"
+        b"--b--\r\n"
+    )
+
+    mail = imap_client.read_email(_OneMessage(raw), "5")  # type: ignore[arg-type]
+
+    assert mail.body_text.strip() == "hello"
+    assert [(a.filename, a.part_number) for a in mail.attachments] == [("a.png", "3")]
+
+
+def test_read_email_lists_an_attached_eml_file():
+    raw = (
+        b'Content-Type: multipart/mixed; boundary="b"\r\n\r\n'
+        b"--b\r\nContent-Type: text/plain\r\n\r\nsee attached\r\n"
+        b"--b\r\nContent-Type: message/rfc822\r\n"
+        b'Content-Disposition: attachment; filename="fwd.eml"\r\n\r\n'
+        b"Subject: inner\r\nContent-Type: text/plain\r\n\r\ninner body\r\n"
+        b"--b--\r\n"
+    )
+
+    mail = imap_client.read_email(_OneMessage(raw), "5")  # type: ignore[arg-type]
+
+    assert mail.body_text.strip() == "see attached"
+    assert [(a.filename, a.content_type) for a in mail.attachments] == [
+        ("fwd.eml", "message/rfc822")
+    ]
+
+
+def test_read_email_keeps_a_body_part_that_only_has_a_content_type_name():
+    raw = b'Content-Type: text/plain; name="memo.txt"; charset=utf-8\r\n\r\nbody text\r\n'
+
+    mail = imap_client.read_email(_OneMessage(raw), "5")  # type: ignore[arg-type]
+
+    assert mail.body_text.strip() == "body text"
+    assert mail.attachments == []
+
+
+def test_send_email_quotes_a_display_name_with_a_comma(monkeypatch):
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def login(self, *args):
+            pass
+
+        def send_message(self, msg):
+            sent.append(msg)
+
+    monkeypatch.setattr(smtp_client.smtplib, "SMTP_SSL", FakeSMTP)
+
+    smtp_client.send_email("me@naver.com", "pw", "Hong, Gildong", ["a@example.com"], "s", "b")
+
+    assert str(sent[0]["From"]) == '"Hong, Gildong" <me@naver.com>'
 
 
 def test_search_emails_matches_korean_subject_on_decoded_headers(imap):
