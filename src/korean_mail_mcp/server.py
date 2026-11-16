@@ -7,6 +7,7 @@ All logging goes to stderr — stdout is reserved for MCP JSON-RPC.
 
 from __future__ import annotations
 
+import imaplib
 import json
 import logging
 import sys
@@ -99,14 +100,35 @@ def _dump(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _failure(error: Exception) -> str | None:
+    """The message for the model about an anticipated failure, or None for a bug."""
+    if isinstance(error, (imap_client.MailIMAPError, smtp_client.MailSMTPError, ValueError)):
+        return str(error)
+    if isinstance(error, TimeoutError):
+        return (
+            f"The mail server did not answer within {imap_client.TIMEOUT} seconds. "
+            "It is sometimes slow for a while; try again later."
+        )
+    if isinstance(error, imaplib.IMAP4.error):
+        return f"The mail server refused the command: {error}"
+    return None
+
+
 def _run_one(account: str | None, call: Callable[[Account], Any]) -> str:
     """Run a call on one account. Several accounts: the name is required and the result names it.
 
     An object result gets an ``account`` field, and a list is wrapped as ``{"account", "result"}``.
+    An anticipated failure becomes a ToolError, since the SDK shows the model nothing of others.
     """
     accounts = load_accounts()
     chosen = _pick(accounts, account)
-    payload = call(chosen)
+    try:
+        payload = call(chosen)
+    except Exception as error:
+        message = _failure(error)
+        if message is None:
+            raise
+        raise ToolError(message) from error
     if len(accounts) > 1:
         if isinstance(payload, dict):
             payload = {"account": chosen.name, **payload}
@@ -128,14 +150,14 @@ def _run_each(account: str | None, call: Callable[[Account], Any]) -> str:
         entry: dict[str, Any] = {"account": chosen.name, "address": chosen.address}
         try:
             entry["result"] = call(chosen)
-        except (imap_client.MailIMAPError, smtp_client.MailSMTPError, ValueError) as error:
-            # anticipated failures carry messages written to be read, so they go to the model
-            # here, even though the SDK hides them from the model on a single-account call
-            logger.warning("Account '%s' failed: %s", chosen.name, error)
-            entry["error"] = str(error)
-        except Exception:  # one crashing account must not hide the others
-            logger.exception("Account '%s' crashed", chosen.name)
-            entry["error"] = "Unexpected error. See the server log."
+        except Exception as error:  # one failing account must not hide the others
+            message = _failure(error)
+            if message is None:
+                logger.exception("Account '%s' crashed", chosen.name)
+                entry["error"] = "Unexpected error. See the server log."
+            else:
+                logger.warning("Account '%s' failed: %s", chosen.name, error)
+                entry["error"] = message
         return entry
 
     with ThreadPoolExecutor(max_workers=len(accounts)) as pool:

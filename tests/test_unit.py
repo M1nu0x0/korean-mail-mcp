@@ -352,6 +352,33 @@ def test_read_thread_escapes_backslashes_in_message_id(imap):
     assert commands[1] == b'UID SEARCH HEADER Message-ID "<a\\\\b@example.com>"'
 
 
+def test_read_thread_sends_one_ored_search_per_message_id(imap):
+    conn, commands = imap
+
+    imap_client.read_thread(conn, "<m@example.com>")
+
+    searches = [c for c in commands if c.startswith(b"UID SEARCH")]
+    expected = (
+        b'UID SEARCH OR OR HEADER Message-ID "<m@example.com>" HEADER References '
+        b'"<m@example.com>" HEADER In-Reply-To "<m@example.com>"'
+    )
+    assert searches[1:] == [expected]
+
+
+def test_read_thread_searches_each_header_apart_where_ored_headers_find_nothing(imap, monkeypatch):
+    conn, commands = imap
+    monkeypatch.setattr(imap_client, "SERVER_TEXT_SEARCH_HOSTS", {conn.host})
+
+    imap_client.read_thread(conn, "<m@example.com>")
+
+    searches = [c for c in commands if c.startswith(b"UID SEARCH")]
+    assert searches[1:] == [
+        b'UID SEARCH HEADER Message-ID "<m@example.com>"',
+        b'UID SEARCH HEADER References "<m@example.com>"',
+        b'UID SEARCH HEADER In-Reply-To "<m@example.com>"',
+    ]
+
+
 def test_read_thread_rejects_non_ascii_message_id(imap):
     conn, _ = imap
 
@@ -1366,8 +1393,9 @@ def test_read_thread_collects_referenced_messages_oldest_first_and_skips_missing
 
     def uid(command, *args):
         if command == "SEARCH":
-            _, header, value = args
-            return "OK", [hits.get((header, value), b"")]
+            terms = [arg for arg in args if arg != "OR"]
+            pairs = [(terms[i + 1], terms[i + 2]) for i in range(0, len(terms), 3)]
+            return "OK", [b" ".join(hits[pair] for pair in pairs if pair in hits)]
         target = args[0].decode() if isinstance(args[0], bytes) else args[0]
         if "REFERENCES" in args[1]:
             meta = b"3 (BODY[HEADER.FIELDS (REFERENCES IN-REPLY-TO)] {%d}" % len(reply_headers)

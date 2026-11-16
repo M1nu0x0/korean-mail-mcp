@@ -913,10 +913,17 @@ def read_thread(conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX")
     searchable = [mid for mid in related_ids if mid.isascii() and mid.isprintable()]
     thread_ids = list(dict.fromkeys([message_id, *searchable]))[:MAX_THREAD_IDS]
     all_uids = set()
+    # Daum and Kakao scan the whole folder on every SEARCH (4-5 s for 400 mails) and an ORed
+    # search costs the same as one term, so each ID gets a single search. Naver answers 0 to
+    # ORed HEADER keys, but its searches are fast, so it keeps one search per header.
+    headers = ("Message-ID", "References", "In-Reply-To")
+    one_per_header = conn.host in SERVER_TEXT_SEARCH_HOSTS
     for mid in thread_ids:
-        for header in ("Message-ID", "References", "In-Reply-To"):
+        terms = [("HEADER", header, _search_string(mid).decode()) for header in headers]
+        searches = terms if one_per_header else [("OR", "OR", *itertools.chain(*terms))]
+        for criteria in searches:
             with contextlib.suppress(imaplib.IMAP4.error):
-                status, data = conn.uid("SEARCH", "HEADER", header, _search_string(mid).decode())
+                status, data = conn.uid("SEARCH", *criteria)
                 if status == "OK" and data[0]:
                     all_uids.update(data[0].split())
 

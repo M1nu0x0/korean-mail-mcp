@@ -17,3 +17,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - `tests/test_accounts.py`, run by `uv run pytest`, for the account configuration, the choice of account and the reading of every account
 - The READMEs and the site's FAQ show how to register accounts by hand with `claude mcp add`: each account needs its own server name, such as `naver-mail-a` and `naver-mail-b` for two Naver accounts, because the service comes from the domain of the address; the plugin is turned off with `claude plugin disable korean-mail-mcp` when only those servers are used
 - Dependabot updates for GitHub Actions, the uv dependencies and the site, each waiting 7 days after a release (`cooldown: default-days: 7`), so a malicious release that is pulled within a week never reaches a pull request; security updates skip the wait
+
+### Fixed
+
+- `read_thread` on Daum and Kakao sends one ORed `SEARCH` per Message-ID instead of three, since those servers scan the whole folder on every search; a lone message took 43 s on Daum and 22 s on Kakao and now takes 8.5 s and 5.2 s. Naver answers 0 to ORed `HEADER` keys, so it keeps one search per header
+- A failed call on one account shows the model why: a missing folder, a server error or a 30-second timeout used to reach it as a bare `Error executing tool`, because the SDK hides the message of anything but a `ToolError`. Unexpected errors still show no detail

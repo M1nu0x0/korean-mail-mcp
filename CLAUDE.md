@@ -49,6 +49,7 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 - 다음·카카오는 `SPECIAL-USE`를 알리지 않는다. 휴지통은 `Deleted Messages`, 임시보관함은 `Drafts`라는 이름으로 찾는다.
 - 다음·카카오 로그인은 전체 주소와 ID 둘 다 된다.
 - 다음은 폴더마다 최근 400통만 IMAP으로 보인다. 그보다 오래된 메일은 UID로도 닿지 않는다.
+- 다음·카카오의 `SEARCH`는 조건 수와 관계없이 폴더를 통째로 훑어 400통 폴더에 4–5초가 걸린다. 그래서 `read_thread`는 세 헤더 조건을 `OR` 하나로 묶는다. 네이버는 `HEADER` 키를 `OR`로 묶으면 항상 0건을 주므로 헤더마다 따로 검색한다.
 - 다음·카카오의 `SEARCH`는 디코딩하지 않은 헤더 원문 바이트와 대조한다(`utf-8` 검색에 인코딩된 제목 193통이 걸림). 본문 검색(`BODY`, `TEXT`)은 항상 0건이다.
 - 네이버는 헤더 조회가 메일당 약 50ms로 느리다(411통 21초, 5,000통 411초). 그래서 `text_search="auto"`는 네이버만 서버 `SEARCH`로 텍스트를 거른다(`providers.SERVER_TEXT_SEARCH_HOSTS`).
 - `search_emails`의 `text_search`는 `auto`·`server`·`local` 중 고른다. 다음·카카오의 `server`는 한글의 인코딩 형태(`_encoded_forms`)를 원문에서 찾는 근사 검색이다(다음 98건 중 95건, 카카오 65건 중 64건, 오탐 0건).

@@ -256,6 +256,49 @@ def test_reading_without_a_name_runs_on_every_account_in_order(monkeypatch, call
     assert sorted(calls) == [("search_emails", "a@naver.com"), ("search_emails", "d@daum.net")]
 
 
+def _failing(error):
+    def fail(conn, *args, **kwargs):
+        raise error
+
+    return fail
+
+
+def test_an_anticipated_failure_on_one_account_reaches_the_model(monkeypatch, calls):
+    _set_env(monkeypatch, MANY)
+    missing = imap_client.FolderNotFoundError("Destination folder 'X' not found.")
+    monkeypatch.setattr(imap_client, "move_emails", _failing(missing))
+
+    with pytest.raises(ToolError, match=r"Destination folder 'X' not found\."):
+        server.move_emails(["1"], "X", account="daum")
+
+
+def test_a_timeout_reaches_the_model_as_a_slow_server(monkeypatch, calls):
+    _set_env(monkeypatch, ONE)
+    monkeypatch.setattr(imap_client, "move_emails", _failing(TimeoutError("timed out")))
+
+    with pytest.raises(ToolError, match=r"did not answer within 30 seconds"):
+        server.move_emails(["1"], "X")
+
+
+def test_an_unexpected_failure_on_one_account_is_not_shown_to_the_model(monkeypatch, calls):
+    _set_env(monkeypatch, ONE)
+    monkeypatch.setattr(imap_client, "move_emails", _failing(RuntimeError("secret detail")))
+
+    with pytest.raises(RuntimeError):
+        server.move_emails(["1"], "X")
+
+
+def test_a_timeout_on_one_of_every_account_is_reported_for_that_account(monkeypatch, calls):
+    _set_env(monkeypatch, MANY)
+    monkeypatch.setattr(imap_client, "list_folders", _failing(TimeoutError("timed out")))
+
+    result = json.loads(server.list_folders())
+
+    assert [entry["error"][:39] for entry in result] == [
+        "The mail server did not answer within 3"
+    ] * 2
+
+
 def test_an_unexpected_failure_shows_no_detail_to_the_model(monkeypatch, calls):
     _set_env(monkeypatch, {**MANY, "MAIL_NAVER_A_ADDRESS": "crash@naver.com"})
 
