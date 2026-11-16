@@ -364,6 +364,7 @@ README.en.md, README.ja.md  README 번역본
 - **Encoding**: UTF-8, EUC-KR, Modified UTF-7 (폴더명) 자동 처리
 - **Connection**: 각 도구 호출마다 새 연결 (stateless)
 - **Attachment limit**: 10MB (base64 인코딩)
+- **Prompt injection**: 메일의 제목, 발신자, 본문, 첨부 이름은 제3자가 쓴 글입니다. 서버 지침, 도구 설명, 읽기 결과의 `security_notice` 필드가 모델에게 이를 데이터로만 다루라고 알립니다. 문구는 보조 수단이므로 `send_email`, `trash_emails`, `move_emails`, `download_attachment`는 호출 전에 사용자가 승인하도록 설정하는 것을 권장합니다.
 
 ## License
 

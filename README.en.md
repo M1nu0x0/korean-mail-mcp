@@ -364,6 +364,7 @@ The plugin lives in `plugins/korean-mail-mcp/` and the marketplace points at it 
 - **Encoding**: UTF-8, EUC-KR and Modified UTF-7 (folder names) are handled automatically
 - **Connection**: a new connection for each tool call (stateless)
 - **Attachment limit**: 10 MB (base64 encoded)
+- **Prompt injection**: the subject, sender, body and attachment names of a message are written by third parties. The server instructions, the tool descriptions and a `security_notice` field in read results tell the model to treat them as data. Wording is only a second line of defense, so set your client to ask you before `send_email`, `trash_emails`, `move_emails` and `download_attachment` run.
 
 ## License
 

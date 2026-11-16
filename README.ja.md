@@ -364,6 +364,7 @@ README.en.md, README.ja.md  README の翻訳
 - **Encoding**: UTF-8、EUC-KR、Modified UTF-7(フォルダ名)を自動で処理
 - **Connection**: ツールを呼ぶたびに新しい接続(ステートレス)
 - **Attachment limit**: 10MB(base64 エンコード)
+- **Prompt injection**: メールの件名、差出人、本文、添付ファイル名は第三者が書いたものです。サーバーの instructions、ツールの説明、読み取り結果の `security_notice` フィールドが、これらをデータとして扱うようモデルに伝えます。文言はあくまで補助なので、`send_email`、`trash_emails`、`move_emails`、`download_attachment` は実行前にユーザーの承認を求める設定を推奨します。
 
 ## License
 

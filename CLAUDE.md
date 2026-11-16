@@ -31,10 +31,11 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 - IMAP injection 방지
 - Header injection 방지
 - DoS 방지 (첨부파일 크기 제한 등)
+- Prompt injection 방지: 메일 내용은 제3자가 쓴 글이다. `server.py`의 `INSTRUCTIONS`, 도구 설명의 "Untrusted content" 문단, 읽기 결과 맨 앞의 `security_notice`(`_untrusted`), 도구 어노테이션 네 곳을 함께 유지한다. 메일 본문을 돌려주는 새 도구는 이 넷을 모두 갖추고 `tests/test_injection.py`에 넣는다. 문구는 보조 수단이고 실제 방어는 쓰기 도구의 사용자 승인이다.
 
 ## Testing
 
-- 단위 테스트: `uv run pytest` (계정 불필요, `tests/test_unit.py`, `tests/test_accounts.py`, `tests/test_plugin.py`, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
+- 단위 테스트: `uv run pytest` (계정 불필요, `tests/test_unit.py`, `tests/test_accounts.py`, `tests/test_injection.py`, `tests/test_plugin.py`, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
 - 정적 검사: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
 - 플러그인 검사: `claude plugin validate .`, `claude plugin validate plugins/korean-mail-mcp`, `cd site && npm ci && npm run build` (`plugin.yml`이 CI와 매일 돌림). 플러그인 파일끼리의 일치는 `uv run pytest`의 `tests/test_plugin.py`가 본다.
 - 통합 테스트: `uv run python -m tests.test_integration` (실제 계정 필요, CI에서 돌리지 않음)
