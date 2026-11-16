@@ -397,14 +397,6 @@ def _find_sent_folder(conn: imaplib.IMAP4_SSL) -> str:
 _SEARCH_DATE_RE = re.compile(r"\d{1,2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}")
 
 
-def _search_string(value: str) -> bytes:
-    """Encode a search value as an IMAP quoted string."""
-    if any(c in value for c in "\r\n\x00"):
-        raise ValueError("Search value contains prohibited characters.")
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'.encode()
-
-
 def _search_date(value: str) -> str:
     if not _SEARCH_DATE_RE.fullmatch(value):
         raise ValueError(f"Invalid date '{value}': use DD-Mon-YYYY, e.g. 01-Jan-2026.")
@@ -412,20 +404,9 @@ def _search_date(value: str) -> str:
 
 
 def _build_search_criteria(
-    sender: str | None,
-    recipient: str | None,
-    subject: str | None,
-    date_from: str | None,
-    date_to: str | None,
-    is_read: bool | None,
-) -> list[str | bytes]:
-    criteria: list[str | bytes] = []
-    texts = [("FROM", sender), ("TO", recipient), ("SUBJECT", subject)]
-    if any(value and not value.isascii() for _, value in texts):
-        criteria += ["CHARSET", "UTF-8"]
-    for key, value in texts:
-        if value:
-            criteria += [key, _search_string(value)]
+    date_from: str | None, date_to: str | None, is_read: bool | None
+) -> list[str]:
+    criteria: list[str] = []
     if date_from:
         criteria += ["SINCE", _search_date(date_from)]
     if date_to:
@@ -433,6 +414,45 @@ def _build_search_criteria(
     if is_read is not None:
         criteria.append("SEEN" if is_read else "UNSEEN")
     return criteria or ["ALL"]
+
+
+def _headers_match(headers: email.message.Message, wanted: dict[str, str]) -> bool:
+    """True when every wanted header contains its text, ignoring case."""
+    return all(
+        text.casefold() in decode_header_value(headers.get(name)).casefold()
+        for name, text in wanted.items()
+    )
+
+
+def _filter_by_headers(
+    conn: imaplib.IMAP4_SSL, uids: list[bytes], wanted: dict[str, str]
+) -> list[bytes]:
+    """Keep the UIDs whose From/To/Subject contain the wanted text.
+
+    Matching happens here, on decoded headers, because Daum and Kakao return no
+    hits for a non-ASCII SEARCH (verified against a mailbox with 98 real matches).
+    """
+    if not uids:
+        return []
+    candidates = set(uids)
+    status, data = conn.uid(
+        "FETCH",
+        f"{uids[0].decode('ascii')}:{uids[-1].decode('ascii')}",
+        "(UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT)])",
+    )
+    if status != "OK":
+        raise MailIMAPError("Failed to fetch headers for search.")
+
+    matched = set()
+    for part in data:
+        if not isinstance(part, tuple):
+            continue
+        uid_match = re.search(rb"UID (\d+)", part[0])
+        if not uid_match or uid_match.group(1) not in candidates:
+            continue
+        if _headers_match(email.message_from_bytes(part[1]), wanted):
+            matched.add(uid_match.group(1))
+    return [uid for uid in uids if uid in matched]
 
 
 def search_emails(
@@ -456,14 +476,15 @@ def search_emails(
             f"Folder '{folder}' not found. Use list_folders to see available folders."
         )
 
-    criteria = _build_search_criteria(sender, recipient, subject, date_from, date_to, is_read)
-    # imaplib sends bytes arguments as they are; typeshed only declares str
-    status, data = conn.uid("SEARCH", *criteria)  # pyright: ignore[reportArgumentType]
-
+    status, data = conn.uid("SEARCH", *_build_search_criteria(date_from, date_to, is_read))
     if status != "OK":
         raise MailIMAPError("Search failed.")
 
     uid_list = data[0].split() if data[0] else []
+    wanted = {"From": sender, "To": recipient, "Subject": subject}
+    wanted = {name: text for name, text in wanted.items() if text}
+    if wanted:
+        uid_list = _filter_by_headers(conn, uid_list, wanted)
     uid_list.reverse()
 
     total_count = len(uid_list)
@@ -534,7 +555,8 @@ def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Emai
             f"Folder '{folder}' not found. Use list_folders to see available folders."
         )
 
-    status, data = conn.uid("FETCH", uid, "(FLAGS RFC822)")
+    # Daum and Kakao answer OK with no data to RFC822; BODY.PEEK[] works on all three
+    status, data = conn.uid("FETCH", uid, "(FLAGS BODY.PEEK[])")
     if status != "OK" or not data or data[0] is None:
         raise EmailNotFoundError(f"Email with UID '{uid}' not found in folder '{folder}'.")
 
@@ -778,7 +800,7 @@ def download_attachment(
     if status != "OK":
         raise FolderNotFoundError(f"Folder '{folder}' not found.")
 
-    status, data = conn.uid("FETCH", uid, "(RFC822)")
+    status, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
     if status != "OK" or not data or data[0] is None:
         raise EmailNotFoundError(f"Email with UID '{uid}' not found in folder '{folder}'.")
 

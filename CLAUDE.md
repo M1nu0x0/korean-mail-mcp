@@ -22,4 +22,11 @@ chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나가 계정 하나를 
 - 정적 검사: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
 - 통합 테스트: `uv run python -m tests.test_integration` (실제 계정 필요, CI에서 돌리지 않음)
 - `send_email`과 정리 도구(`move_emails`, `mark_read`, `trash_emails`, `create_folder`)는 메일함을 바꾸므로 통합 테스트에 넣지 않는다.
-- 다음·카카오와 정리 도구는 실제 계정으로 검증되지 않았다. 검증하면 이 줄을 고친다.
+- 2026-11-16에 다음·카카오 실제 계정으로 통합 테스트 9개와 한글 검색을 검증했다. 네이버 계정과 정리 도구는 실제 계정으로 검증되지 않았다. 검증하면 이 줄을 고친다.
+
+## Provider quirks
+
+- 다음·카카오는 `UID FETCH ... RFC822`에 데이터 없이 OK를 준다. 본문은 `BODY.PEEK[]`로 가져온다.
+- 다음·카카오는 비ASCII `SEARCH`에 항상 0건을 준다. From/To/Subject 필터는 헤더를 받아 로컬에서 대조한다(`_filter_by_headers`).
+- 다음·카카오는 `SPECIAL-USE`를 알리지 않는다. 휴지통은 `Deleted Messages`, 임시보관함은 `Drafts`라는 이름으로 찾는다.
+- 다음·카카오 로그인은 전체 주소와 ID 둘 다 된다.

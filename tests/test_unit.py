@@ -181,35 +181,6 @@ def test_hosts_for_picks_servers_by_email_domain(address, hosts):
     assert hosts_for(address) == hosts
 
 
-def test_build_search_criteria_quotes_values_with_spaces_and_quotes():
-    criteria = imap_client._build_search_criteria(
-        'Kim "Min" Woo', None, "weekly report", None, None, False
-    )
-
-    assert criteria == ["FROM", b'"Kim \\"Min\\" Woo"', "SUBJECT", b'"weekly report"', "UNSEEN"]
-
-
-def test_build_search_criteria_declares_utf8_for_korean_values():
-    criteria = imap_client._build_search_criteria(None, None, "회의 일정", None, None, None)
-
-    assert criteria == ["CHARSET", "UTF-8", "SUBJECT", '"회의 일정"'.encode()]
-
-
-def test_build_search_criteria_matches_all_without_filters():
-    assert imap_client._build_search_criteria(None, None, None, None, None, None) == ["ALL"]
-
-
-@pytest.mark.parametrize("date", ["2026-01-01", "01-Jan-2026 OR ALL", "1-jan-2026"])
-def test_build_search_criteria_rejects_malformed_dates(date):
-    with pytest.raises(ValueError, match="Invalid date"):
-        imap_client._build_search_criteria(None, None, None, date, None, None)
-
-
-def test_build_search_criteria_rejects_line_breaks():
-    with pytest.raises(ValueError, match="prohibited"):
-        imap_client._build_search_criteria(None, None, "a\r\nA1 LOGOUT", None, None, None)
-
-
 def test_mailbox_passes_raw_names_and_encodes_display_names():
     assert imap_client._mailbox("&yBXCwA-") == '"&yBXCwA-"'
     assert imap_client._mailbox("영수증") == f'"{imap_client.encode_mutf7("영수증")}"'
@@ -219,6 +190,14 @@ def test_mailbox_passes_raw_names_and_encodes_display_names():
 def test_uid_set_rejects_empty_oversized_and_non_numeric(uids):
     with pytest.raises(ValueError, match=r"UID|uids"):
         imap_client._uid_set(uids)
+
+
+# UID 7's subject is "회의 일정 안내" as an RFC 2047 encoded word, the way servers store it
+SEARCH_HEADERS = {
+    7: b"From: Hong Gildong <hong@example.com>\r\n"
+    b"Subject: =?UTF-8?B?7ZqM7J2YIOydvOyglSDslYjrgrQ=?=\r\n\r\n",
+    9: b"From: Lee <lee@example.com>\r\nSubject: Weekly Report\r\n\r\n",
+}
 
 
 @pytest.fixture
@@ -238,6 +217,13 @@ def imap():
                     sock.sendall(b"* CAPABILITY IMAP4rev1\r\n")
                 if b"SEARCH" in command:
                     sock.sendall(b"* SEARCH 7 9\r\n")
+                if b"HEADER.FIELDS (FROM TO SUBJECT)" in command:
+                    for seq, (uid, headers) in enumerate(SEARCH_HEADERS.items(), start=1):
+                        item = b"BODY[HEADER.FIELDS (FROM TO SUBJECT)]"
+                        sock.sendall(
+                            b"* %d FETCH (UID %d %s {%d}\r\n" % (seq, uid, item, len(headers))
+                        )
+                        sock.sendall(headers + b")\r\n")
                 if command.startswith(b"LIST"):
                     sock.sendall(b'* LIST (\\HasNoChildren \\Trash) "/" "Deleted Messages"\r\n')
                 sock.sendall(tag + b" OK done\r\n")
@@ -250,16 +236,6 @@ def imap():
     with contextlib.suppress(Exception):
         conn.logout()
     server.close()
-
-
-def test_search_emails_sends_quoted_utf8_criteria(imap):
-    conn, commands = imap
-
-    result = imap_client.search_emails(conn, sender="Hong Gildong", subject="회의 일정")
-
-    expected = 'UID SEARCH CHARSET UTF-8 FROM "Hong Gildong" SUBJECT "회의 일정"'.encode()
-    assert expected in commands
-    assert result.total_count == 2
 
 
 def test_move_emails_selects_source_and_moves_to_encoded_destination(imap):
@@ -293,3 +269,78 @@ def test_create_folder_encodes_korean_name(imap):
     imap_client.create_folder(conn, "영수증")
 
     assert commands == [b'CREATE "' + imap_client.encode_mutf7("영수증").encode() + b'"']
+
+
+def test_read_email_fetches_the_message_with_body_peek(imap):
+    conn, commands = imap
+
+    with pytest.raises(imap_client.EmailNotFoundError):
+        imap_client.read_email(conn, "5")
+
+    assert commands[-1] == b"UID FETCH 5 (FLAGS BODY.PEEK[])"
+
+
+def test_download_attachment_fetches_the_message_with_body_peek(imap):
+    conn, commands = imap
+
+    with pytest.raises(imap_client.EmailNotFoundError):
+        imap_client.download_attachment(conn, "5", "2")
+
+    assert commands[-1] == b"UID FETCH 5 (BODY.PEEK[])"
+
+
+def test_build_search_criteria_leaves_text_filters_to_the_client():
+    assert imap_client._build_search_criteria("01-Jan-2026", None, False) == [
+        "SINCE",
+        "01-Jan-2026",
+        "UNSEEN",
+    ]
+
+
+def test_build_search_criteria_matches_all_without_filters():
+    assert imap_client._build_search_criteria(None, None, None) == ["ALL"]
+
+
+@pytest.mark.parametrize("date", ["2026-01-01", "01-Jan-2026 OR ALL", "1-jan-2026"])
+def test_build_search_criteria_rejects_malformed_dates(date):
+    with pytest.raises(ValueError, match="Invalid date"):
+        imap_client._build_search_criteria(date, None, None)
+
+
+def test_search_emails_matches_korean_subject_on_decoded_headers(imap):
+    conn, commands = imap
+
+    result = imap_client.search_emails(conn, subject="일정")
+
+    assert commands[:3] == [
+        b'EXAMINE "INBOX"',
+        b"UID SEARCH ALL",
+        b"UID FETCH 7:9 (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT)])",
+    ]
+    assert result.total_count == 1
+
+
+def test_search_emails_matches_text_ignoring_case(imap):
+    conn, _ = imap
+
+    result = imap_client.search_emails(conn, sender="LEE", subject="weekly report")
+
+    assert result.total_count == 1
+
+
+def test_search_emails_requires_every_text_filter_to_match(imap):
+    conn, _ = imap
+
+    result = imap_client.search_emails(conn, sender="Lee", subject="일정")
+
+    assert result.total_count == 0
+
+
+def test_search_emails_skips_header_fetch_without_text_filters(imap):
+    conn, commands = imap
+
+    result = imap_client.search_emails(conn, is_read=False)
+
+    assert b"UID SEARCH UNSEEN" in commands
+    assert not any(b"FROM TO SUBJECT" in c for c in commands)
+    assert result.total_count == 2
