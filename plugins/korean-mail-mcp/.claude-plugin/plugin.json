@@ -1,7 +1,7 @@
 {
   "name": "korean-mail-mcp",
-  "version": "0.1.0",
-  "description": "Connects a Naver, Daum or Kakao mailbox to Claude through an MCP server: search, read, draft, send, move and trash mail over IMAP and SMTP. One server serves one account, chosen by the domain of the address",
+  "version": "0.2.0",
+  "description": "Connects Naver, Daum and Kakao mailboxes to Claude through an MCP server: search, read, draft, send, move and trash mail over IMAP and SMTP. One server serves one account per service, and a service you leave empty is skipped",
   "author": {
     "name": "M1nu0x0",
     "url": "https://github.com/M1nu0x0"
@@ -11,23 +11,49 @@
   "license": "MIT",
   "keywords": ["claude-code", "plugin", "mcp", "email", "imap", "smtp", "korean", "naver", "daum", "kakao"],
   "userConfig": {
-    "mail_address": {
+    "naver_address": {
       "type": "string",
-      "title": "Mail address",
-      "description": "Full address of the account, such as your_id@naver.com. Its domain (naver.com, daum.net, hanmail.net or kakao.com) picks the mail service",
-      "required": true
+      "title": "Naver address",
+      "description": "Full Naver address, such as your_id@naver.com. Leave empty if you do not use Naver",
+      "default": ""
     },
-    "mail_password": {
+    "naver_password": {
       "type": "string",
-      "title": "IMAP password",
-      "description": "The password for IMAP and SMTP, not the account password: a Naver application password, or the one Daum or Kakao shows on its IMAP settings page",
+      "title": "Naver IMAP password",
+      "description": "The Naver application password for IMAP and SMTP, not the account password. Leave empty if you do not use Naver",
       "sensitive": true,
-      "required": true
+      "default": ""
+    },
+    "daum_address": {
+      "type": "string",
+      "title": "Daum address",
+      "description": "Full Daum address, such as your_id@daum.net or your_id@hanmail.net. Leave empty if you do not use Daum",
+      "default": ""
+    },
+    "daum_password": {
+      "type": "string",
+      "title": "Daum IMAP password",
+      "description": "The password Daum shows on its IMAP settings page, not the account password. Leave empty if you do not use Daum",
+      "sensitive": true,
+      "default": ""
+    },
+    "kakao_address": {
+      "type": "string",
+      "title": "Kakao address",
+      "description": "Full Kakao address, such as your_id@kakao.com. Leave empty if you do not use Kakao",
+      "default": ""
+    },
+    "kakao_password": {
+      "type": "string",
+      "title": "Kakao IMAP password",
+      "description": "The password Kakao shows on its IMAP settings page, not the account password. Leave empty if you do not use Kakao",
+      "sensitive": true,
+      "default": ""
     },
     "mail_full_name": {
       "type": "string",
       "title": "Display name",
-      "description": "Name shown as the sender of mail you send. Leave empty to send with the address alone",
+      "description": "Name shown as the sender of mail you send, for every account. Leave empty to send with the address alone",
       "default": ""
     }
   }

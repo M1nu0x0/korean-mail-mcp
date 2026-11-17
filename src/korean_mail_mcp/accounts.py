@@ -7,6 +7,11 @@ With ``MAIL_ACCOUNTS=naver-a,daum`` it has one account per listed name, and each
 ``MAIL_<NAME>_ADDRESS``, ``MAIL_<NAME>_PASSWORD`` and ``MAIL_<NAME>_FULL_NAME`` (the name in upper
 case, with ``-`` written as ``_``): ``MAIL_NAVER_A_ADDRESS`` for ``naver-a``. The plain
 ``MAIL_ADDRESS`` variables are then ignored.
+
+A name written with a trailing ``?``, as in ``MAIL_ACCOUNTS=naver?,daum?``, is optional: it is left
+out when its address is empty, even if a password is still set, so a launcher can list every
+account it offers and fill in only some of them, and clearing the address turns an account off. An
+address without a password is still an error, and at least one account must remain.
 """
 
 from __future__ import annotations
@@ -62,7 +67,9 @@ def load_accounts(environ: Mapping[str, str] | None = None) -> dict[str, Account
 
     accounts: dict[str, Account] = {}
     keys: dict[str, str] = {}
-    for name in names:
+    for entry in names:
+        optional = entry.endswith("?")
+        name = entry.removesuffix("?")
         if not _NAME.fullmatch(name):
             raise ValueError(
                 f"Invalid account name '{name}' in MAIL_ACCOUNTS: use letters, digits, '-' and "
@@ -80,6 +87,8 @@ def load_accounts(environ: Mapping[str, str] | None = None) -> dict[str, Account
         password_variable = f"MAIL_{key}_PASSWORD"
         address = environ.get(address_variable, "")
         password = environ.get(password_variable, "")
+        if optional and not address:
+            continue
         missing = [
             variable
             for variable, value in ((address_variable, address), (password_variable, password))
@@ -92,4 +101,9 @@ def load_accounts(environ: Mapping[str, str] | None = None) -> dict[str, Account
             )
         full_name = environ.get(f"MAIL_{key}_FULL_NAME", "")
         accounts[name] = Account(name, address, password, full_name)
+    if not accounts:
+        raise ValueError(
+            f"No account in MAIL_ACCOUNTS ({listed}) has an address and a password: set "
+            "MAIL_<NAME>_ADDRESS and MAIL_<NAME>_PASSWORD for at least one of them."
+        )
     return accounts

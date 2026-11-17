@@ -3,7 +3,7 @@
 ## Project Overview
 
 네이버·다음·카카오 메일 MCP 서버 (Python, mcp 2.x의 MCPServer).
-chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나는 기본으로 계정 하나를 맡고(`MAIL_ADDRESS`), `MAIL_ACCOUNTS`에 이름을 나열하면 여러 계정을 맡는다(`MAIL_<NAME>_ADDRESS` 등, `accounts.py`). 접속 서버는 각 주소의 도메인으로 정한다(`providers.py`).
+chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나는 기본으로 계정 하나를 맡고(`MAIL_ADDRESS`), `MAIL_ACCOUNTS`에 이름을 나열하면 여러 계정을 맡고(`MAIL_<NAME>_ADDRESS` 등, `accounts.py`), 이름 뒤에 `?`를 붙이면 주소가 빈 계정을 건너뛴다. 접속 서버는 각 주소의 도메인으로 정한다(`providers.py`).
 
 ## Tools (13개)
 
@@ -13,15 +13,15 @@ chanmuzi/naver-mail-mcp의 fork. 서버 프로세스 하나는 기본으로 계�
 
 - 도구 13개 모두 선택 인자 `account`를 받는다. 계정이 여러 개일 때 `account`를 생략하면 읽기 전용 4개(`get_profile`, `search_emails`, `list_folders`, `list_drafts`)는 모든 계정에서 나란히 실행해 `[{account, address, result|error}]`로 돌려주고, 나머지 9개는 오류다. 쓰기 도구에 기본 계정을 두지 않는 것이 의도다(엉뚱한 계정에서 발송·삭제 방지). 새 도구를 추가하면 어느 쪽인지 정하고 `tests/test_accounts.py`의 `ONE_ACCOUNT_TOOLS`나 `EACH_ACCOUNT_TOOLS`에 넣는다.
 - 계정이 하나면 결과에 `account` 필드가 붙지 않아 예전과 같다. 여러 개면 dict 결과에는 `account` 필드가 붙고, 리스트 결과는 `{account, result}`로 감싼다(`_run_one`).
-- `MAIL_ACCOUNTS`는 플러그인이 넘기지 않는다(플러그인은 계정 하나). 환경변수 이름은 `server.py`와 `accounts.py`의 `environ.get("…")` 리터럴로 `tests/test_plugin.py`가 검사한다.
+- 플러그인은 `MAIL_ACCOUNTS=naver?,daum?,kakao?`와 서비스별 `MAIL_NAVER_*` 등을 넘긴다(서비스마다 계정 하나). 이름 뒤 `?`는 선택 계정이고, 주소가 비면 비밀번호가 남아 있어도 건너뛴다. `claude plugin configure`로는 저장된 sensitive 값을 비울 수 없어서 주소를 비우는 것이 서비스를 끄는 방법이다. `server.py`와 `accounts.py`의 `environ.get("…")` 리터럴이 바뀌면 `tests/test_plugin.py`가 알려 준다. `MAIL_<NAME>_*`는 f-string이라 그 검사에 잡히지 않으므로 `.mcp.json`과 같이 고친다.
 
 ## Plugin
 
 Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plugin 레포(claude-utf8-guard 등)를 따른다.
 
 - `.claude-plugin/marketplace.json`이 `plugins/korean-mail-mcp/`를 가리킨다. 플러그인 이름은 `claude-`로 시작하면 안 된다(`claude plugin validate`가 예약어로 막음).
-- `plugins/korean-mail-mcp/.mcp.json`은 `uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp`로 서버를 띄우고, `userConfig` 세 개(`mail_address`, `mail_password`, `mail_full_name`)를 `MAIL_ADDRESS`, `MAIL_PASSWORD`, `MAIL_FULL_NAME`으로 넘긴다. 서버가 읽는 환경변수를 바꾸면 `.mcp.json`, `plugin.json`, README 3종, `site/src/site.json`도 같이 고친다. `tests/test_plugin.py`가 어긋남을 잡는다.
-- 서버는 버전에 고정하지 않고 기본 브랜치에서 가져온다. `pyproject.toml`과 `plugin.json`의 `version`은 항상 같게 올리고, 릴리스 태그(`vX.Y.Z`)와도 같아야 한다(`release.yml`이 확인).
+- `plugins/korean-mail-mcp/.mcp.json`은 `uvx --from git+https://github.com/M1nu0x0/korean-mail-mcp korean-mail-mcp`로 서버를 띄우고, `userConfig` 일곱 개(서비스별 `*_address`, `*_password`와 공용 `mail_full_name`)를 `MAIL_<NAME>_*`로 넘긴다. 채우지 않은 옵션은 기본값 `""`가 되어 빈 문자열로 치환된다(Claude Code 2.1.322에서 확인). 서버가 읽는 환경변수를 바꾸면 `.mcp.json`, `plugin.json`, README 3종, `site/src/site.json`도 같이 고친다. `tests/test_plugin.py`가 어긋남을 잡는다.
+- 서버는 버전에 고정하지 않고 기본 브랜치에서 가져온다. 버전은 `pyproject.toml`, `plugin.json`, `src/korean_mail_mcp/__init__.py`의 `__version__`, `uv.lock`의 `korean-mail-mcp` 항목(`uv lock --check`로 확인) 네 곳에 있고 항상 같게 올린다. 릴리스 태그(`vX.Y.Z`)와도 같아야 한다(`release.yml`은 `pyproject.toml`과 `plugin.json`만 확인한다). `plugin.json`의 `version`이 그대로면 새 커밋이 있어도 설치된 사본이 유지된다고 문서에 나온다(직접 시험하지 않음). 플러그인 변경을 자동 업데이트로 전달하려면 이 값을 올린다.
 - `site/`는 GitHub Pages 사이트(Astro, 한국어·영어·일본어). 문구는 `site/src/site.json`에 있고, 바꾸면 `updated`를 그날 날짜로 바꾼다. `ask`, `answer`, `ogImageLine`, `ogImageText`를 바꾸면 `npm run og`로 `site/public/images/og*.png`를 다시 만든다.
 - 설정, 도구, 제공자별 동작이 바뀌면 `README.md`, `README.en.md`, `README.ja.md`, `site/src/site.json`의 세 언어를 함께 고친다.
 
@@ -38,6 +38,7 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 - 단위 테스트: `uv run pytest` (계정 불필요, `tests/test_unit.py`, `tests/test_accounts.py`, `tests/test_injection.py`, `tests/test_plugin.py`, CI에서 Python 3.10–3.15 × 3개 OS로 실행)
 - 정적 검사: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
 - 플러그인 검사: `claude plugin validate .`, `claude plugin validate plugins/korean-mail-mcp`, `cd site && npm ci && npm run build` (`plugin.yml`이 CI와 매일 돌림). 플러그인 파일끼리의 일치는 `uv run pytest`의 `tests/test_plugin.py`가 본다.
+- 플러그인 경로를 실제 Claude Code로 확인하려면 `CLAUDE_CONFIG_DIR`을 임시 폴더로 정하고 로컬 마켓플레이스를 추가한 뒤(`claude plugin marketplace add <경로>`, `claude plugin install`), `claude plugin configure <id> --values-stdin`으로 값을 넣고 `claude mcp list`로 서버가 Connected인지 본다. sensitive 값은 키체인(`Claude Code-credentials-<해시>`)에 들어가므로 시험이 끝나면 지운다. 로컬 경로를 `uvx --from`으로 띄울 때는 `--no-cache`를 줘야 최신 코드가 실행된다(`--refresh-package`로는 이전 코드가 실행됐다).
 - 통합 테스트: `uv run python -m tests.test_integration` (실제 계정 필요, CI에서 돌리지 않음)
 - `send_email`과 정리 도구(`move_emails`, `mark_read`, `trash_emails`, `create_folder`)는 메일함을 바꾸므로 통합 테스트에 넣지 않는다.
 - 2026-11-16에 다음·카카오 실제 계정으로 통합 테스트 9개와 한글 검색을 검증했다. 같은 날 정리 도구 4개도 세 계정에서 시험 메일 한 통의 왕복(읽음 표시, 한글 이름 폴더 생성, 이동, 휴지통)으로 검증했다. 여러 통을 한 번에 옮기는 경우와 없는 폴더로 옮기는 오류 경로는 실제 계정으로 검증하지 않았다.

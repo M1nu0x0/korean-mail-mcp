@@ -60,17 +60,21 @@ Claude Desktop에서는 프롬프트 옆 `+` → Plugins → Add marketplace에 
 
 [uv](https://docs.astral.sh/uv/)가 설치돼 있어서 `uvx`가 `PATH`에 있어야 합니다. 서버는 이 저장소에서 `uvx`로 바로 실행되고(PyPI에는 배포되어 있지 않음), 따로 설치할 것은 없습니다.
 
-플러그인을 켜면 Claude Code가 세 가지를 묻습니다.
+플러그인을 켜면 Claude Code가 일곱 가지를 묻습니다. 쓰는 서비스만 채우고 나머지는 비워 둡니다. 서버 하나가 서비스마다 계정 하나씩, 최대 세 계정을 맡습니다.
 
 | 항목 | 필수 | 설명 |
 |------|------|------|
-| Mail address (`mail_address`) | Yes | 이메일 주소 전체. 도메인으로 서비스를 정함 |
-| IMAP password (`mail_password`) | Yes | IMAP용 비밀번호(계정 비밀번호 아님). `settings.json`이 아니라 민감한 값으로 따로 보관됨 |
-| Display name (`mail_full_name`) | No | 보내는 메일에 표시할 이름. 비워 두면 주소만 씀 |
+| Naver address (`naver_address`) | No | 네이버 이메일 주소 전체. 비우면 네이버를 쓰지 않음 |
+| Naver IMAP password (`naver_password`) | No | 네이버 애플리케이션 비밀번호(계정 비밀번호 아님). `settings.json`이 아니라 민감한 값으로 따로 보관됨 |
+| Daum address (`daum_address`) | No | 다음 이메일 주소 전체(`daum.net` 또는 `hanmail.net`). 비우면 다음을 쓰지 않음 |
+| Daum IMAP password (`daum_password`) | No | 다음 IMAP용 비밀번호(계정 비밀번호 아님). 민감한 값으로 따로 보관됨 |
+| Kakao address (`kakao_address`) | No | 카카오 이메일 주소 전체. 비우면 카카오를 쓰지 않음 |
+| Kakao IMAP password (`kakao_password`) | No | 카카오 IMAP용 비밀번호(계정 비밀번호 아님). 민감한 값으로 따로 보관됨 |
+| Display name (`mail_full_name`) | No | 보내는 메일에 표시할 이름. 모든 계정에 같이 쓰이고, 비워 두면 주소만 씀 |
 
-IMAP용 비밀번호를 받는 방법은 아래 [Prerequisites](#prerequisites)에 있습니다.
+IMAP용 비밀번호를 받는 방법은 아래 [Prerequisites](#prerequisites)에 있습니다. 서비스마다 주소와 비밀번호를 둘 다 채웁니다. 주소만 있고 비밀번호가 없으면 서버가 시작하지 않고, 주소를 비운 서비스는 비밀번호가 남아 있어도 건너뜁니다. 서비스를 하나도 채우지 않으면 서버가 시작하지 않습니다. 나중에 바꾸려면 Claude Code에서 `/plugin configure korean-mail-mcp@korean-mail-mcp`를 실행합니다.
 
-플러그인은 계정 하나를 담당합니다. 계정이 여러 개이거나 Claude Code 밖의 MCP 클라이언트에서 쓴다면 아래 [MCP Client Configuration](#mcp-client-configuration)처럼 서버를 직접 등록합니다. 여러 계정은 서버 하나로 묶을 수도 있습니다([Multiple Accounts](#multiple-accounts)).
+계정이 하나뿐이면 지금까지와 똑같이 동작합니다. 둘 이상이면 [Multiple Accounts](#multiple-accounts)처럼 `account` 인자로 계정(`naver`, `daum`, `kakao`)을 가리킵니다. 같은 서비스의 계정이 둘 이상이거나 Claude Code 밖의 MCP 클라이언트에서 쓴다면 아래 [MCP Client Configuration](#mcp-client-configuration)처럼 서버를 직접 등록합니다.
 
 끄려면 `claude plugin disable korean-mail-mcp`, 제거하려면 `claude plugin uninstall korean-mail-mcp`를 실행합니다.
 
@@ -138,7 +142,7 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 | `MAIL_FULL_NAME` | No | 발신 메일 표시 이름 |
 | `MAIL_ACCOUNTS` | No | 여러 계정의 이름 목록. 있으면 위 세 변수 대신 `MAIL_<이름>_*`를 읽음. [Multiple Accounts](#multiple-accounts) 참고 |
 
-플러그인은 위의 세 값을 `mail_address`, `mail_password`, `mail_full_name`으로 받아 같은 이름의 환경변수로 서버에 넘깁니다.
+플러그인은 `MAIL_ACCOUNTS=naver?,daum?,kakao?`와 서비스별 `MAIL_NAVER_*`, `MAIL_DAUM_*`, `MAIL_KAKAO_*`를 서버에 넘깁니다. `mail_full_name` 옵션은 세 계정의 `MAIL_<이름>_FULL_NAME`에 같은 값으로 들어갑니다.
 
 ## Multiple Accounts
 
@@ -176,7 +180,8 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 - UID와 폴더는 계정마다 따로이므로, `search_emails` 결과의 UID는 그 결과가 속한 계정과 함께 써야 합니다.
 - 전 계정 검색에서 `folder`, `page`, `page_size`는 계정마다 따로 적용됩니다. 계정들이 나란히 실행되므로 가장 느린 계정만큼 걸리고, 네이버는 헤더 조회가 느려서 보통 그 계정이 됩니다.
 - 계정이 하나뿐이면 `MAIL_ACCOUNTS` 없이 지금까지처럼 쓰면 됩니다. `account`는 생략할 수 있고 결과에도 `account` 필드가 붙지 않습니다.
-- 플러그인은 계정 하나만 받으므로 `MAIL_ACCOUNTS`를 넘기지 않습니다. 여러 계정은 위처럼 서버를 직접 등록하세요.
+- 이름 뒤에 `?`를 붙이면(`MAIL_ACCOUNTS=naver?,daum?`) 선택 계정입니다. 주소가 비어 있으면 비밀번호가 남아 있어도 그 계정을 건너뜁니다. 주소만 있고 비밀번호가 없으면 오류이고, 건너뛴 뒤 계정이 하나도 남지 않아도 오류입니다.
+- 플러그인은 서비스마다 계정 하나씩(네이버·다음·카카오)을 `MAIL_ACCOUNTS=naver?,daum?,kakao?`로 넘깁니다. 같은 서비스의 계정이 둘 이상이면 위처럼 서버를 직접 등록하세요.
 
 ## Tools Reference
 
@@ -332,7 +337,7 @@ cd site && npm run og                # 언어별 링크 미리보기 이미지 �
   marketplace.json      이 레포를 마켓플레이스로 등록
 plugins/korean-mail-mcp/
   .claude-plugin/
-    plugin.json         플러그인 매니페스트, userConfig 세 개
+    plugin.json         플러그인 매니페스트, userConfig 일곱 개
   .mcp.json             uvx로 서버를 띄우는 MCP 서버 정의
 src/korean_mail_mcp/    MCP 서버(Python)
 tests/                  단위 테스트(test_unit.py, test_plugin.py)와 통합 테스트
@@ -355,6 +360,7 @@ README.en.md, README.ja.md  README 번역본
 | `Folder not found` | `list_folders` 도구로 사용 가능한 폴더명 확인 |
 | `Failed to spawn process` | `command`에 `uvx`의 절대 경로 사용 (`which uvx`로 확인) |
 | 플러그인을 켰는데 도구가 안 보임 | 새 세션에서 확인하고, `claude plugin list`로 켜져 있는지 확인 |
+| 플러그인을 켰는데 서버가 시작하지 않음 (`No account in MAIL_ACCOUNTS`, `Missing required environment variables for account`) | Claude Code에서 `/plugin configure korean-mail-mcp@korean-mail-mcp`를 실행해 쓰는 서비스의 주소와 비밀번호를 둘 다 채움 |
 
 ## Technical Details
 

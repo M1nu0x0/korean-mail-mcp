@@ -4,9 +4,16 @@
       "command": "uvx",
       "args": ["--from", "git+https://github.com/M1nu0x0/korean-mail-mcp", "korean-mail-mcp"],
       "env": {
-        "MAIL_ADDRESS": "${user_config.mail_address}",
-        "MAIL_PASSWORD": "${user_config.mail_password}",
-        "MAIL_FULL_NAME": "${user_config.mail_full_name}"
+        "MAIL_ACCOUNTS": "naver?,daum?,kakao?",
+        "MAIL_NAVER_ADDRESS": "${user_config.naver_address}",
+        "MAIL_NAVER_PASSWORD": "${user_config.naver_password}",
+        "MAIL_NAVER_FULL_NAME": "${user_config.mail_full_name}",
+        "MAIL_DAUM_ADDRESS": "${user_config.daum_address}",
+        "MAIL_DAUM_PASSWORD": "${user_config.daum_password}",
+        "MAIL_DAUM_FULL_NAME": "${user_config.mail_full_name}",
+        "MAIL_KAKAO_ADDRESS": "${user_config.kakao_address}",
+        "MAIL_KAKAO_PASSWORD": "${user_config.kakao_password}",
+        "MAIL_KAKAO_FULL_NAME": "${user_config.mail_full_name}"
       }
     }
   }

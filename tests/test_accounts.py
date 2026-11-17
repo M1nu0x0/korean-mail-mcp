@@ -28,6 +28,16 @@ MANY = {
     "MAIL_DAUM_ADDRESS": "d@daum.net",
     "MAIL_DAUM_PASSWORD": "pd",
 }
+# every account optional, as the plugin lists them; Naver is not filled in
+OPTIONAL_MANY = {
+    "MAIL_ACCOUNTS": "naver?,daum?,kakao?",
+    "MAIL_NAVER_ADDRESS": "",
+    "MAIL_NAVER_PASSWORD": "",
+    "MAIL_DAUM_ADDRESS": "d@daum.net",
+    "MAIL_DAUM_PASSWORD": "pd",
+    "MAIL_KAKAO_ADDRESS": "k@kakao.com",
+    "MAIL_KAKAO_PASSWORD": "pk",
+}
 
 # every tool that is bound to one mailbox or changes one, with arguments that satisfy it
 ONE_ACCOUNT_TOOLS = {
@@ -111,6 +121,66 @@ def test_missing_plain_variables_keep_their_message():
 
 def test_the_password_stays_out_of_repr():
     assert "pw" not in repr(load_accounts(ONE)["default"])
+
+
+def test_an_optional_account_with_empty_variables_is_left_out():
+    accounts = load_accounts(OPTIONAL_MANY)
+
+    assert list(accounts) == ["daum", "kakao"]
+    assert accounts["kakao"].address == "k@kakao.com"
+
+
+def test_an_optional_account_with_unset_variables_is_left_out():
+    env = {key: value for key, value in OPTIONAL_MANY.items() if "NAVER" not in key}
+
+    assert list(load_accounts(env)) == ["daum", "kakao"]
+
+
+def test_optional_accounts_keep_the_listed_order():
+    env = {**OPTIONAL_MANY, "MAIL_NAVER_ADDRESS": "n@naver.com", "MAIL_NAVER_PASSWORD": "pn"}
+
+    assert list(load_accounts(env)) == ["naver", "daum", "kakao"]
+
+
+def test_an_optional_account_with_an_address_but_no_password_is_an_error():
+    env = {**OPTIONAL_MANY, "MAIL_NAVER_ADDRESS": "n@naver.com"}
+
+    with pytest.raises(ValueError, match="account 'naver': MAIL_NAVER_PASSWORD must be set"):
+        load_accounts(env)
+
+
+def test_an_optional_account_with_a_password_but_no_address_is_left_out():
+    # clearing the address turns an account off, even when its password stays stored
+    env = {**OPTIONAL_MANY, "MAIL_NAVER_PASSWORD": "pn"}
+
+    assert list(load_accounts(env)) == ["daum", "kakao"]
+
+
+def test_a_required_account_next_to_optional_ones_stays_required():
+    env = {**OPTIONAL_MANY, "MAIL_ACCOUNTS": "naver,daum?,kakao?"}
+
+    with pytest.raises(
+        ValueError, match="account 'naver': MAIL_NAVER_ADDRESS and MAIL_NAVER_PASSWORD"
+    ):
+        load_accounts(env)
+
+
+def test_when_no_optional_account_has_an_address_the_error_names_the_list():
+    env = {"MAIL_ACCOUNTS": "naver?,daum?", "MAIL_NAVER_ADDRESS": "", "MAIL_DAUM_PASSWORD": "pd"}
+
+    with pytest.raises(ValueError, match=r"No account in MAIL_ACCOUNTS \(naver\?,daum\?\)"):
+        load_accounts(env)
+
+
+@pytest.mark.parametrize("name", ["na?ver", "naver??", "?naver", "?"])
+def test_the_optional_mark_is_only_allowed_at_the_end_of_a_name(name):
+    with pytest.raises(ValueError, match="Invalid account name"):
+        load_accounts({"MAIL_ACCOUNTS": name})
+
+
+def test_an_optional_name_that_is_left_out_still_claims_its_variables():
+    with pytest.raises(ValueError, match="read the same variables"):
+        load_accounts({**OPTIONAL_MANY, "MAIL_ACCOUNTS": "naver?,NAVER"})
 
 
 # ---- choosing an account ----

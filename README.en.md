@@ -60,17 +60,21 @@ In Claude Desktop, click `+` next to the prompt box → Plugins → Add marketpl
 
 [uv](https://docs.astral.sh/uv/) must be installed so that `uvx` is on your `PATH`. The server runs straight from this repository with `uvx` (it is not published on PyPI), so there is nothing else to install.
 
-When you enable the plugin, Claude Code asks for three values.
+When you enable the plugin, Claude Code asks for seven values. Fill in only the services you use and leave the rest empty. One server holds one account per service, so up to three.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| Mail address (`mail_address`) | Yes | The full email address. Its domain picks the service |
-| IMAP password (`mail_password`) | Yes | The password for IMAP (not the account password). Kept as a sensitive value, not in `settings.json` |
-| Display name (`mail_full_name`) | No | The name shown on mail you send. Leave it empty to use the address alone |
+| Naver address (`naver_address`) | No | The full Naver address. Leave it empty if you do not use Naver |
+| Naver IMAP password (`naver_password`) | No | The Naver application password (not the account password). Kept as a sensitive value, not in `settings.json` |
+| Daum address (`daum_address`) | No | The full Daum address (`daum.net` or `hanmail.net`). Leave it empty if you do not use Daum |
+| Daum IMAP password (`daum_password`) | No | The password for Daum IMAP (not the account password). Kept as a sensitive value |
+| Kakao address (`kakao_address`) | No | The full Kakao address. Leave it empty if you do not use Kakao |
+| Kakao IMAP password (`kakao_password`) | No | The password for Kakao IMAP (not the account password). Kept as a sensitive value |
+| Display name (`mail_full_name`) | No | The name shown on mail you send, for every account. Leave it empty to use the address alone |
 
-How to get the IMAP password is under [Prerequisites](#prerequisites).
+How to get the IMAP password is under [Prerequisites](#prerequisites). Fill in both the address and the password of a service. An address without a password stops the server from starting, and a service whose address is empty is skipped even if a password is still stored. With every service left empty the server does not start either. To change them later, run `/plugin configure korean-mail-mcp@korean-mail-mcp` in Claude Code.
 
-The plugin serves one account. For several accounts, or for an MCP client other than Claude Code, register the server by hand as under [MCP Client Configuration](#mcp-client-configuration). Several accounts can also share one server ([Multiple Accounts](#multiple-accounts)).
+With one account, everything works as before. With several, tools take `account` to say which one (`naver`, `daum` or `kakao`), as under [Multiple Accounts](#multiple-accounts). For two accounts at the same service, or for an MCP client other than Claude Code, register the server by hand as under [MCP Client Configuration](#mcp-client-configuration).
 
 To turn it off run `claude plugin disable korean-mail-mcp`, and to remove it `claude plugin uninstall korean-mail-mcp`.
 
@@ -138,7 +142,7 @@ The tools are listed per server, so use `get_profile` to see which account a ser
 | `MAIL_FULL_NAME` | No | Display name on mail you send |
 | `MAIL_ACCOUNTS` | No | Names of several accounts. When set, `MAIL_<NAME>_*` is read in place of the three above. See [Multiple Accounts](#multiple-accounts) |
 
-The plugin takes these three as `mail_address`, `mail_password` and `mail_full_name` and passes them to the server as the environment variables above.
+The plugin passes `MAIL_ACCOUNTS=naver?,daum?,kakao?` and the `MAIL_NAVER_*`, `MAIL_DAUM_*` and `MAIL_KAKAO_*` variables of each service to the server. Its `mail_full_name` option becomes `MAIL_<NAME>_FULL_NAME` of all three accounts.
 
 ## Multiple Accounts
 
@@ -176,7 +180,8 @@ Every tool takes an optional `account` argument (the account name, case-insensit
 - UIDs and folders belong to one account, so use a UID from `search_emails` with the account its result is listed under.
 - In a search over every account, `folder`, `page` and `page_size` apply to each account on its own. The accounts run side by side, so it takes as long as the slowest one, which is usually Naver because fetching headers there is slow.
 - With a single account, use the server as before without `MAIL_ACCOUNTS`: `account` can be left out and the result has no `account` field.
-- The plugin takes one account and does not pass `MAIL_ACCOUNTS`. For several accounts, register the server by hand as above.
+- A name followed by `?` (`MAIL_ACCOUNTS=naver?,daum?`) is an optional account. It is skipped when its address is empty, even if a password is still set. An address without a password is an error, and so is having no account left after the skipping.
+- The plugin passes one account per service (Naver, Daum and Kakao) as `MAIL_ACCOUNTS=naver?,daum?,kakao?`. For two accounts at the same service, register the server by hand as above.
 
 ## Tools Reference
 
@@ -332,7 +337,7 @@ To release a new version, merge a pull request that raises `version` in both `py
   marketplace.json      registers this repo as a marketplace
 plugins/korean-mail-mcp/
   .claude-plugin/
-    plugin.json         plugin manifest, three userConfig options
+    plugin.json         plugin manifest, seven userConfig options
   .mcp.json             the MCP server definition that starts it with uvx
 src/korean_mail_mcp/    the MCP server (Python)
 tests/                  unit tests (test_unit.py, test_plugin.py) and integration tests
@@ -355,6 +360,7 @@ The plugin lives in `plugins/korean-mail-mcp/` and the marketplace points at it 
 | `Folder not found` | Use the `list_folders` tool to see the folder names available |
 | `Failed to spawn process` | Use the absolute path of `uvx` as `command` (`which uvx` shows it) |
 | The tools do not show after enabling the plugin | Check in a new session, and run `claude plugin list` to see that it is enabled |
+| The server does not start after enabling the plugin (`No account in MAIL_ACCOUNTS`, `Missing required environment variables for account`) | In Claude Code run `/plugin configure korean-mail-mcp@korean-mail-mcp` and fill in both the address and the password of each service you use |
 
 ## Technical Details
 
