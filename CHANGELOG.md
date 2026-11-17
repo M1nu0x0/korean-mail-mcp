@@ -23,3 +23,4 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 - `read_thread` on Daum and Kakao sends one ORed `SEARCH` per Message-ID instead of three, since those servers scan the whole folder on every search; a lone message took 43 s on Daum and 22 s on Kakao and now takes 8.5 s and 5.2 s. Naver answers 0 to ORed `HEADER` keys, so it keeps one search per header
 - A failed call on one account shows the model why: a missing folder, a server error or a 30-second timeout used to reach it as a bare `Error executing tool`, because the SDK hides the message of anything but a `ToolError`. Unexpected errors still show no detail
+- `send_email` adds a `Date` header to the mail it sends. Daum's and Kakao's SMTP servers do not add one, so mail sent through them arrived without a date, while Naver's server does and `smtplib` does not

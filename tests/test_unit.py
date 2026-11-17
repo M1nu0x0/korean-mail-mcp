@@ -6,6 +6,7 @@ import base64
 import contextlib
 import email
 import email.policy
+import email.utils
 import imaplib
 import json
 import os
@@ -14,6 +15,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 from email.message import EmailMessage
 from types import SimpleNamespace
@@ -1533,6 +1535,13 @@ def test_send_email_sets_cc_and_reply_headers(smtp):
     assert str(sent["Cc"]) == "c@example.com"
     assert str(sent["In-Reply-To"]) == "<b@example.com>"
     assert str(sent["References"]) == "<a@example.com> <b@example.com>"
+
+
+def test_send_email_dates_the_message_itself(smtp):
+    smtp_client.send_email("me@kakao.com", "pw", "", ["a@example.com"], "s", "b")
+
+    sent_at = email.utils.parsedate_to_datetime(str(smtp.sent[0]["Date"]))
+    assert abs(sent_at.timestamp() - time.time()) < 60
 
 
 def test_send_email_sends_an_html_body_when_asked(smtp):

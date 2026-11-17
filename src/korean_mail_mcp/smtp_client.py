@@ -5,6 +5,7 @@ from __future__ import annotations
 import smtplib
 from email.headerregistry import Address
 from email.message import EmailMessage
+from email.utils import formatdate
 
 from .providers import hosts_for
 
@@ -53,6 +54,8 @@ def send_email(
         msg["From"] = email_address
     msg["To"] = ", ".join(to)
     msg["Subject"] = _sanitize_header_value(subject)
+    # Daum's and Kakao's SMTP servers do not add a Date header; Naver's does.
+    msg["Date"] = formatdate(localtime=True)
 
     if cc:
         msg["Cc"] = ", ".join(cc)
