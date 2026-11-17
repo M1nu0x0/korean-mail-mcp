@@ -80,6 +80,17 @@ def test_decode_header_value_decodes_euc_kr_subject():
     assert decoded == "안녕하세요"
 
 
+def test_decode_header_value_keeps_the_text_around_a_malformed_encoded_word():
+    # the middle word has 5 base64 characters, one more than a multiple of four, which
+    # email.header.decode_header rejects
+    raw = "=?UTF-8?B?7ZqM7J2Y?= =?UTF-8?B?abcde?= report"
+
+    decoded = imap_client.decode_header_value(raw)
+
+    assert decoded.startswith("회의")
+    assert decoded.endswith("report")
+
+
 def test_to_dict_serializes_dataclass():
     folder = Folder(name="받은메일함", raw_name="INBOX", message_count=3, unseen_count=1)
 
@@ -588,6 +599,11 @@ MEETING = "회의 일정 안내"
         pytest.param(_encoded_word("ＡＢＣ 안내"), "abc", id="full-width letters"),  # noqa: RUF001
         pytest.param(_encoded_word("회의  일정"), "회의 일정", id="repeated spaces"),
         pytest.param(b"=?UTF-8?B?7ZqM7J2Y!!!?= report", "report", id="malformed encoded-word"),
+        pytest.param(
+            _encoded_word(MEETING) + b" =?UTF-8?B?abcde?=",
+            "일정",
+            id="base64 word one character past a multiple of four",
+        ),
     ],
 )
 def test_headers_match_finds_text_however_the_subject_is_stored(raw, needle):
@@ -1131,6 +1147,20 @@ def test_fetch_email_summary_marks_a_message_without_the_seen_flag_as_unread():
 
     assert summary is not None
     assert summary.is_read is False
+
+
+def test_fetch_email_summary_keeps_a_subject_with_a_malformed_encoded_word():
+    header = (
+        b"From: Hong Gildong <hong@example.com>\r\n"
+        b"Subject: =?UTF-8?B?7ZqM7J2Y?= =?UTF-8?B?abcde?=\r\n"
+        b"Date: Mon, 16 Nov 2026 16:51:00 +0900\r\n\r\n"
+    )
+    conn = _FakeConn(uid=_summary_reply(5, b"", header))
+
+    summary = imap_client._fetch_email_summary(_imap(conn), b"5")
+
+    assert summary is not None
+    assert summary.subject.startswith("회의")
 
 
 @pytest.mark.parametrize("reply", [("NO", [b"denied"]), ("OK", [None]), ("OK", [])])

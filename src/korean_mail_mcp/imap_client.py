@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import contextlib
 import email
+import email.errors
 import email.header
 import email.headerregistry
 import email.message
+import email.policy
 import email.utils
 import imaplib
 import itertools
@@ -166,7 +168,12 @@ def decode_header_value(raw: str | None) -> str:
     """Decode RFC 2047 encoded header value, handling Korean charsets."""
     if not raw:
         return ""
-    decoded_parts = email.header.decode_header(raw)
+    try:
+        decoded_parts = email.header.decode_header(raw)
+    except email.errors.HeaderParseError:
+        # A base64 word with one character past a multiple of four makes decode_header raise,
+        # which would fail the whole call. The policy parser keeps such a word as text.
+        return str(email.policy.default.header_fetch_parse("Subject", raw))
     result = []
     for part, charset in decoded_parts:
         if isinstance(part, bytes):
