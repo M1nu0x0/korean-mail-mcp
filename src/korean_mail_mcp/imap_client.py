@@ -286,6 +286,77 @@ def _parse_address_list(header: str | None) -> list[str]:
     ]
 
 
+# What an Authentication-Results (RFC 8601) or Received-SPF (RFC 7208) header may say. Nothing
+# else is passed on, so a sender cannot put free text into the result.
+_AUTH_VERDICTS = frozenset(
+    {"pass", "fail", "softfail", "neutral", "none", "policy", "temperror", "permerror"}
+)
+_AUTH_RESULT_RE = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", re.IGNORECASE)
+_RECEIVED_SPF_RE = re.compile(r"\s*([a-z]+)\s*\(\s*([^\s:()]+)\s*:", re.IGNORECASE)
+
+
+def _provider_domain(conn: imaplib.IMAP4_SSL) -> str:
+    """naver.com for imap.naver.com: the name the provider writes into its own header lines."""
+    host = getattr(conn, "host", "")
+    return ".".join(host.split(".")[-2:]) if isinstance(host, str) else ""
+
+
+def _recorded_by(provider: str, name: str) -> bool:
+    """True for the provider's domain or a host below it: mx.naver.com, but not evilnaver.com."""
+    name = name.lower()
+    return bool(provider) and (name == provider or name.endswith("." + provider))
+
+
+def _authentication(msg: email.message.Message, provider: str) -> dict[str, str]:
+    """The SPF, DKIM and DMARC verdicts that the receiving provider wrote into the headers.
+
+    A header counts only when the provider's own name is in it, and only the newest one of its
+    kind is read: the sender writes headers too, and mail relayed by another service carries
+    that service's line (one Daum message had a SparkPost server's). Naver records
+    Authentication-Results and Received-SPF; Daum and Kakao record only Received-SPF, so they
+    give no DKIM or DMARC verdict.
+    """
+    verdicts: dict[str, str] = {}
+    results = str(msg.get("Authentication-Results") or "")
+    server_id = results.partition(";")[0].split()
+    if server_id and _recorded_by(provider, server_id[0]):
+        for method, verdict in _AUTH_RESULT_RE.findall(results):
+            if verdict.lower() in _AUTH_VERDICTS:
+                verdicts.setdefault(method.lower(), verdict.lower())
+    spf = _RECEIVED_SPF_RE.match(str(msg.get("Received-SPF") or ""))
+    if (
+        spf
+        and "spf" not in verdicts
+        and spf[1].lower() in _AUTH_VERDICTS
+        and _recorded_by(provider, spf[2])
+    ):
+        verdicts["spf"] = spf[1].lower()
+    return verdicts
+
+
+def _domain(address: str) -> str:
+    return address.rpartition("@")[2].strip().lower()
+
+
+def _same_site(a: str, b: str) -> bool:
+    """Equal domains, or one below the other (mail.example.com and example.com)."""
+    return a == b or a.endswith("." + b) or b.endswith("." + a)
+
+
+def _reply_to_differs(msg: email.message.Message) -> bool:
+    """True when a Reply-To address is on a domain unrelated to the From address's."""
+    sender = _domain(email.utils.parseaddr(str(msg.get("From") or ""))[1])
+    reply_to = email.utils.getaddresses([str(msg.get("Reply-To") or "")])
+    return bool(sender) and any(
+        addr and not _same_site(sender, _domain(addr)) for _, addr in reply_to
+    )
+
+
+def _check_max_chars(max_chars: int | None) -> None:
+    if max_chars is not None and max_chars < 1:
+        raise ValueError("max_chars must be at least 1.")
+
+
 # --- IMAP Operations ---
 # All functions accept an authenticated IMAP connection as first parameter.
 
@@ -786,8 +857,15 @@ def _part_bytes(part: email.message.Message) -> bytes | None:
     return None
 
 
-def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Email:
-    """Read a full email by UID."""
+def read_email(
+    conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX", max_chars: int | None = None
+) -> Email:
+    """Read a full email by UID.
+
+    max_chars cuts body_text and body_html to that many characters each and sets truncated.
+    It limits what is returned; the whole message is still downloaded.
+    """
+    _check_max_chars(max_chars)
     uid = _sanitize_uid(uid)
     folder = _sanitize_folder_name(folder)
     status, _ = conn.select(_mailbox(folder), readonly=True)
@@ -866,6 +944,11 @@ def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Emai
                 charset = part.get_content_charset()
                 body_html = decode_body(payload, charset)
 
+    truncated = False
+    if max_chars is not None:
+        truncated = len(body_text) > max_chars or len(body_html) > max_chars
+        body_text, body_html = body_text[:max_chars], body_html[:max_chars]
+
     return Email(
         uid=uid,
         message_id=message_id,
@@ -880,15 +963,23 @@ def read_email(conn: imaplib.IMAP4_SSL, uid: str, folder: str = "INBOX") -> Emai
         references=references,
         in_reply_to=in_reply_to,
         attachments=attachments,
+        reply_to=_parse_address_list(msg.get("Reply-To")),
+        reply_to_differs=_reply_to_differs(msg),
+        list_unsubscribe=bool(msg.get("List-Unsubscribe")),
+        authentication=_authentication(msg, _provider_domain(conn)),
+        truncated=truncated,
     )
 
 
-def read_thread(conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX") -> list[Email]:
+def read_thread(
+    conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX", max_chars: int | None = None
+) -> list[Email]:
     """Read an email thread by Message-ID.
 
     Finds all related emails via References and In-Reply-To headers.
-    All operations use a single connection.
+    All operations use a single connection. max_chars applies to every message, as in read_email.
     """
+    _check_max_chars(max_chars)
     message_id = _sanitize_message_id(message_id)
     folder = _sanitize_folder_name(folder)
     status, _ = conn.select(_mailbox(folder), readonly=True)
@@ -938,7 +1029,7 @@ def read_thread(conn: imaplib.IMAP4_SSL, message_id: str, folder: str = "INBOX")
     for uid in all_uids:
         uid_str = uid.decode("utf-8") if isinstance(uid, bytes) else str(uid)
         try:
-            mail = read_email(conn, uid_str, folder)
+            mail = read_email(conn, uid_str, folder, max_chars)
             thread_emails.append(mail)
         except EmailNotFoundError:
             continue

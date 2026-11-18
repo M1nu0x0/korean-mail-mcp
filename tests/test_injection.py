@@ -146,6 +146,38 @@ def test_read_thread_carries_the_notice_on_every_message(mailbox):
     assert all(mail["security_notice"] == server.UNTRUSTED_NOTICE for mail in result)
 
 
+def test_read_tools_pass_max_chars_on_to_the_mailbox(mailbox, monkeypatch):
+    seen = []
+
+    def read_email(conn, uid, folder, max_chars):
+        seen.append(("read_email", max_chars))
+        return _mail()
+
+    def read_thread(conn, message_id, folder, max_chars):
+        seen.append(("read_thread", max_chars))
+        return [_mail()]
+
+    monkeypatch.setattr(imap_client, "read_email", read_email)
+    monkeypatch.setattr(imap_client, "read_thread", read_thread)
+
+    server.read_email(uid="1", max_chars=50)
+    server.read_email(uid="1")
+    server.read_thread(message_id="<m@example.com>", max_chars=60)
+
+    assert seen == [("read_email", 50), ("read_email", None), ("read_thread", 60)]
+
+
+def test_read_email_result_carries_the_sender_checks_after_the_notice(mailbox):
+    result = json.loads(server.read_email(uid="1"))
+
+    assert next(iter(result)) == "security_notice"
+    assert result["reply_to"] == []
+    assert result["reply_to_differs"] is False
+    assert result["list_unsubscribe"] is False
+    assert result["authentication"] == {}
+    assert result["truncated"] is False
+
+
 def test_search_and_attachment_results_carry_the_notice(mailbox):
     searched = json.loads(server.search_emails())
     downloaded = json.loads(server.download_attachment(uid="1", part_number="2"))

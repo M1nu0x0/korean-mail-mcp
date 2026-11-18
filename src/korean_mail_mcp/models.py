@@ -43,6 +43,13 @@ class Email:
     references: list[str]
     in_reply_to: str
     attachments: list[AttachmentMeta] = field(default_factory=list)
+    # checks on the sender, read from the headers (a sender can fake them)
+    reply_to: list[str] = field(default_factory=list)
+    reply_to_differs: bool = False
+    list_unsubscribe: bool = False
+    authentication: dict[str, str] = field(default_factory=dict)
+    # true when max_chars cut body_text or body_html
+    truncated: bool = False
 
 
 @dataclass

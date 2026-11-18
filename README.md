@@ -222,12 +222,30 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 |-----------|------|----------|---------|-------------|
 | uid | string | Yes | - | 메일 고유 ID |
 | folder | string | No | INBOX | 폴더 |
+| max_chars | integer | No | - | `body_text`와 `body_html`을 각각 이 글자 수(1 이상)까지만 돌려줍니다. 비우면 전체입니다. 돌려주는 양만 줄이고, 메일은 전부 내려받습니다 |
+
+결과에는 발신자를 살펴볼 때 쓰는 헤더 정보가 들어 있습니다.
+
+| 필드 | 뜻 |
+|------|----|
+| `reply_to` | `Reply-To` 주소 목록. 헤더가 없으면 빈 목록 |
+| `reply_to_differs` | `Reply-To`에 `From`과 무관한 도메인이 있으면 `true`. 같은 도메인이거나 한쪽이 다른 쪽의 하위 도메인이면 무관하지 않은 것으로 봅니다 |
+| `list_unsubscribe` | `List-Unsubscribe` 헤더가 있으면 `true`. 대량 발송 메일의 표지입니다 |
+| `authentication` | 메일 서비스가 기록한 `spf`, `dkim`, `dmarc` 결과(`pass`, `fail`, `softfail`, `neutral`, `none`, `policy`, `temperror`, `permerror`). 기록하지 않은 항목은 빠집니다 |
+| `truncated` | `max_chars`로 본문이 잘렸으면 `true` |
+
+- 네이버는 `Authentication-Results`에 세 결과를 적고, 다음·카카오는 `Received-SPF`만 적어서 `spf`만 나옵니다. 2026-11-18에 세 계정의 받은편지함 최신 메일(네이버·다음 80통, 카카오 56통)에서 확인했고 결과는 거의 모두 `pass`였습니다.
+- 메일 서비스 자신의 이름(`mx.naver.com`, `mx.daum.net`, `kakao.com`)이 든 줄만 읽고, 같은 종류의 줄 중 가장 위(최신) 하나만 봅니다. 보낸 사람이나 중계 서비스가 넣은 줄은 무시합니다. 다음의 한 통은 중계한 SparkPost 서버의 `Authentication-Results`만 달고 있었습니다.
+- 헤더에 적힌 값이라 보내는 쪽이 꾸며 낼 수 있고, `pass`는 발신자가 사칭이 아니라는 증명이 아닙니다. 메일을 더 자세히 살펴볼 단서로 쓰고, 안전하다는 근거로 쓰지 마십시오.
 
 ### read_thread
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | message_id | string | Yes | - | Message-ID 헤더 값 |
 | folder | string | No | INBOX | 폴더 |
+| max_chars | integer | No | - | 스레드의 모든 메일에 `read_email`과 같이 적용합니다 |
+
+스레드의 각 메일에도 `read_email`과 같은 필드가 들어 있습니다.
 
 ### list_folders
 폴더 목록 조회. 파라미터 없음.
