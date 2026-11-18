@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "korean-mail-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Korean Mail MCP Server (Naver, Daum, Kakao) for Claude Desktop"
 readme = "README.md"
 license = {text = "MIT"}
