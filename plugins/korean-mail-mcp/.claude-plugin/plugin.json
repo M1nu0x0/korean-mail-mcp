@@ -1,6 +1,6 @@
 {
   "name": "korean-mail-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Connects Naver, Daum and Kakao mailboxes to Claude through an MCP server: search, read, draft, send, move and trash mail over IMAP and SMTP. One server serves one account per service, and a service you leave empty is skipped",
   "author": {
     "name": "M1nu0x0",
