@@ -19,6 +19,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - The READMEs and the site's FAQ show how to register accounts by hand with `claude mcp add`: each account needs its own server name, such as `naver-mail-a` and `naver-mail-b` for two Naver accounts, because the service comes from the domain of the address; the plugin is turned off with `claude plugin disable korean-mail-mcp` when only those servers are used
 - Dependabot updates for GitHub Actions, the uv dependencies and the site, each waiting 7 days after a release (`cooldown: default-days: 7`), so a malicious release that is pulled within a week never reaches a pull request; security updates skip the wait
 
+### Changed
+
+- `LICENSE` and `pyproject.toml` credit M1nu0x0 next to chanmuzi. The original MIT notice, `Copyright (c) 2026 chanmuzi`, stays as it was, and a second line covers the changes made in this repository
+
 ### Fixed
 
 - `read_thread` on Daum and Kakao sends one ORed `SEARCH` per Message-ID instead of three, since those servers scan the whole folder on every search; a lone message took 43 s on Daum and 22 s on Kakao and now takes 8.5 s and 5.2 s. Naver answers 0 to ORed `HEADER` keys, so it keeps one search per header
