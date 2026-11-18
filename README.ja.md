@@ -222,12 +222,30 @@ claude mcp add --scope user naver-mail-b -e MAIL_ADDRESS=b_id@naver.com -e MAIL_
 |--------------|----|------|--------|------|
 | uid | string | Yes | - | メールの固有 ID |
 | folder | string | No | INBOX | フォルダ |
+| max_chars | integer | No | - | `body_text` と `body_html` をそれぞれこの文字数(1 以上)までだけ返します。省略すると全文です。返す量を減らすだけで、メールは全部ダウンロードします |
+
+結果には、送信者を確かめるためのヘッダー由来の情報が含まれます。
+
+| フィールド | 意味 |
+|------------|------|
+| `reply_to` | `Reply-To` のアドレス一覧。ヘッダーがなければ空のリスト |
+| `reply_to_differs` | `Reply-To` に、`From` のアドレスと無関係なドメインのものがあれば `true`。同じドメイン、または一方がもう一方のサブドメインなら無関係とは見なしません |
+| `list_unsubscribe` | `List-Unsubscribe` ヘッダーがあれば `true`。一斉送信メールの目印です |
+| `authentication` | メールサービスが記録した `spf`、`dkim`、`dmarc` の結果(`pass`、`fail`、`softfail`、`neutral`、`none`、`policy`、`temperror`、`permerror`)。記録がない項目は含まれません |
+| `truncated` | `max_chars` で本文が切られたら `true` |
+
+- Naver は `Authentication-Results` に 3 つとも記録します。Daum と Kakao は `Received-SPF` だけを記録するので `spf` のみになります。2026-11-18 に 3 つのアカウントの受信トレイの最新メール(Naver と Daum は 80 通、Kakao は 56 通)で確認したところ、ほぼすべて `pass` でした。
+- メールサービス自身の名前(`mx.naver.com`、`mx.daum.net`、`kakao.com`)が入った行だけを読み、同じ種類の行のうち一番上(最新)の 1 本だけを見ます。送信者や中継サービスが入れた行は無視します。Daum の 1 通は、中継した SparkPost サーバーの `Authentication-Results` だけを持っていました。
+- ヘッダーに書かれた値なので送信者が偽装でき、`pass` は送信者が名乗り通りの人であることの証明ではありません。メールをより詳しく調べる手がかりとして使い、安全だと判断する根拠にはしないでください。
 
 ### read_thread
 | パラメーター | 型 | 必須 | 既定値 | 説明 |
 |--------------|----|------|--------|------|
 | message_id | string | Yes | - | Message-ID ヘッダーの値 |
 | folder | string | No | INBOX | フォルダ |
+| max_chars | integer | No | - | スレッドのすべてのメールに `read_email` と同じように適用します |
+
+スレッドの各メールにも `read_email` と同じフィールドが含まれます。
 
 ### list_folders
 フォルダの一覧を取得します。パラメーターはありません。

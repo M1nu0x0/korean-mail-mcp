@@ -24,7 +24,7 @@ from typing import cast
 import pytest
 
 from korean_mail_mcp import imap_client, server, smtp_client
-from korean_mail_mcp.models import Folder, to_dict
+from korean_mail_mcp.models import Email, Folder, to_dict
 from korean_mail_mcp.providers import hosts_for
 
 
@@ -1442,6 +1442,195 @@ def test_read_thread_collects_referenced_messages_oldest_first_and_skips_missing
     thread = imap_client.read_thread(_imap(conn), "<b@example.com>")
 
     assert [mail.uid for mail in thread] == ["7", "3"]
+
+
+# ---- max_chars and the checks on the sender ----
+
+
+class _MessageOnHost(_OneMessage):
+    """A one-message connection that says which server it talks to."""
+
+    def __init__(self, raw: bytes, host: str):
+        super().__init__(raw)
+        self.host = host
+
+
+def _headers(*lines: str, body: str = "hello") -> bytes:
+    return ("\r\n".join(lines) + f"\r\n\r\n{body}\r\n").encode()
+
+
+def _read(raw: bytes, host: str = "", **kwargs) -> Email:
+    return imap_client.read_email(_imap(_MessageOnHost(raw, host)), "5", **kwargs)
+
+
+ALTERNATIVE = (
+    b'Content-Type: multipart/alternative; boundary="b"\r\n\r\n'
+    b"--b\r\nContent-Type: text/plain\r\n\r\n0123456789\r\n"
+    b"--b\r\nContent-Type: text/html\r\n\r\n<p>0123456789</p>\r\n"
+    b"--b--\r\n"
+)
+
+
+def test_read_email_cuts_both_bodies_at_max_chars_and_says_so():
+    mail = _read(ALTERNATIVE, max_chars=4)
+
+    assert (mail.body_text, mail.body_html, mail.truncated) == ("0123", "<p>0", True)
+
+
+def test_read_email_returns_the_whole_body_when_max_chars_is_left_out():
+    mail = _read(_headers("Subject: long", body="x" * 20_000))
+
+    assert len(mail.body_text.strip()) == 20_000
+    assert mail.truncated is False
+
+
+def test_read_email_says_truncated_only_when_something_was_cut():
+    longest = max(len(_read(ALTERNATIVE).body_text), len(_read(ALTERNATIVE).body_html))
+
+    assert _read(ALTERNATIVE, max_chars=longest).truncated is False
+    assert _read(ALTERNATIVE, max_chars=longest - 1).truncated is True
+
+
+@pytest.mark.parametrize("max_chars", [0, -1])
+def test_read_email_and_read_thread_reject_a_max_chars_below_one(max_chars):
+    conn = _FakeConn()  # a value that is refused must not reach the server
+
+    with pytest.raises(ValueError, match="max_chars"):
+        imap_client.read_email(_imap(conn), "5", max_chars=max_chars)
+    with pytest.raises(ValueError, match="max_chars"):
+        imap_client.read_thread(_imap(conn), "<a@example.com>", max_chars=max_chars)
+
+    assert conn.calls == []
+
+
+def test_read_thread_hands_max_chars_to_each_message(monkeypatch):
+    read = []
+
+    def fake_read_email(conn, uid, folder, max_chars=None):
+        read.append((uid, max_chars))
+        return Email(uid, "", "", "", [], [], "", "", "", [], [], "")
+
+    def uid(command, *args):
+        return ("OK", [b"7"]) if command == "SEARCH" else ("OK", [None])
+
+    monkeypatch.setattr(imap_client, "read_email", fake_read_email)
+    conn = _FakeConn(select=("OK", [b"1"]), uid=uid)
+
+    imap_client.read_thread(_imap(conn), "<a@example.com>", max_chars=50)
+
+    assert read == [("7", 50)]
+
+
+@pytest.mark.parametrize(
+    ("sender", "reply_to", "differs"),
+    [
+        ("a@example.com", "b@example.com", False),
+        ("news@mail.example.com", "help@example.com", False),
+        ("help@example.com", "news@mail.example.com", False),
+        ("a@example.com", "b@other.org", True),
+        ("a@example.com", "b@example.com, c@other.org", True),
+        ("a@example.com", "b@notexample.com", True),  # ends with the domain, but not below it
+        ("a@example.com", "", False),
+    ],
+)
+def test_read_email_flags_a_reply_to_on_an_unrelated_domain(sender, reply_to, differs):
+    lines = [f"From: {sender}"] + ([f"Reply-To: {reply_to}"] if reply_to else [])
+
+    assert _read(_headers(*lines)).reply_to_differs is differs
+
+
+def test_read_email_lists_the_reply_to_addresses_with_their_names():
+    raw = _headers("From: a@example.com", "Reply-To: Help Desk <help@example.com>, b@other.org")
+
+    assert _read(raw).reply_to == ["Help Desk <help@example.com>", "b@other.org"]
+
+
+def test_read_email_has_no_reply_to_without_the_header():
+    mail = _read(_headers("From: a@example.com"))
+
+    assert (mail.reply_to, mail.reply_to_differs) == ([], False)
+
+
+def test_read_email_does_not_compare_a_reply_to_with_a_from_it_cannot_read():
+    mail = _read(_headers("Subject: no sender", "Reply-To: b@other.org"))
+
+    assert mail.reply_to_differs is False
+
+
+def test_read_email_marks_bulk_mail_by_its_list_unsubscribe_header():
+    bulk = _read(_headers("List-Unsubscribe: <mailto:unsubscribe@example.com>"))
+    plain = _read(_headers("Subject: hi"))
+
+    assert (bulk.list_unsubscribe, plain.list_unsubscribe) == (True, False)
+
+
+def test_read_email_reads_the_three_verdicts_that_naver_records():
+    raw = _headers(
+        "Authentication-Results: mx.naver.com; spf=pass smtp.mailfrom=a@example.com;",
+        " dkim=pass header.d=example.com; dmarc=fail (p=none) header.from=example.com",
+        "Received-SPF: softfail (mx.naver.com: domain of a@example.com designates 192.0.2.1)",
+    )
+
+    mail = _read(raw, host="imap.naver.com")
+
+    assert mail.authentication == {"spf": "pass", "dkim": "pass", "dmarc": "fail"}
+
+
+@pytest.mark.parametrize(
+    ("host", "checked_by"),
+    [
+        ("imap.naver.com", "mx.naver.com"),
+        ("imap.daum.net", "mx.daum.net"),
+        ("imap.kakao.com", "kakao.com"),
+    ],
+)
+def test_read_email_reads_the_spf_verdict_from_received_spf_alone(host, checked_by):
+    raw = _headers(
+        f"Received-SPF: pass ({checked_by}: domain of a@example.com designates 192.0.2.1 "
+        "as permitted sender)"
+    )
+
+    assert _read(raw, host=host).authentication == {"spf": "pass"}
+
+
+def test_read_email_reads_only_the_newest_received_spf_line():
+    raw = _headers(
+        "Received-SPF: fail (mx.daum.net: domain of a@example.com does not designate 192.0.2.1)",
+        "Received-SPF: pass (mx.daum.net: domain of a@example.com designates 192.0.2.1)",
+    )
+
+    assert _read(raw, host="imap.daum.net").authentication == {"spf": "fail"}
+
+
+def test_read_email_ignores_an_authentication_results_line_from_a_relay():
+    # one Daum message carried the line of the SparkPost server that had relayed it
+    raw = _headers("Authentication-Results: relay.sender.example; spf=pass; dkim=pass; dmarc=pass")
+
+    assert _read(raw, host="imap.daum.net").authentication == {}
+
+
+@pytest.mark.parametrize("name", ["evil.example", "evilnaver.com", "naver.com.evil.example"])
+def test_read_email_ignores_a_line_that_does_not_name_the_provider(name):
+    raw = _headers(
+        f"Authentication-Results: {name}; spf=pass; dkim=pass; dmarc=pass",
+        f"Received-SPF: pass ({name}: domain of a@example.com designates 192.0.2.1)",
+    )
+
+    assert _read(raw, host="imap.naver.com").authentication == {}
+
+
+def test_read_email_gives_no_verdict_when_it_does_not_know_the_server():
+    raw = _headers(
+        "Received-SPF: pass (mx.naver.com: domain of a@example.com designates 192.0.2.1)"
+    )
+
+    assert _read(raw).authentication == {}
+
+
+def test_read_email_passes_on_only_known_verdict_words_in_lower_case():
+    raw = _headers("Authentication-Results: MX.NAVER.COM; spf=ignore; DKIM=PASS; dmarc=bogus")
+
+    assert _read(raw, host="imap.naver.com").authentication == {"dkim": "pass"}
 
 
 # ---- mailbox organization ----

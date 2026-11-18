@@ -32,6 +32,7 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 - Header injection 방지
 - DoS 방지 (첨부파일 크기 제한 등)
 - Prompt injection 방지: 메일 내용은 제3자가 쓴 글이다. `server.py`의 `INSTRUCTIONS`, 도구 설명의 "Untrusted content" 문단, 읽기 결과 맨 앞의 `security_notice`(`_untrusted`), 도구 어노테이션 네 곳을 함께 유지한다. 메일 본문을 돌려주는 새 도구는 이 넷을 모두 갖추고 `tests/test_injection.py`에 넣는다. 문구는 보조 수단이고 실제 방어는 쓰기 도구의 사용자 승인이다.
+- `read_email`의 발신자 확인 필드(`reply_to`, `reply_to_differs`, `list_unsubscribe`, `authentication`)는 헤더에서 읽은 값이라 위조될 수 있다. `authentication`은 서비스 이름이 든 줄만 읽고 판정 단어를 `_AUTH_VERDICTS`로 제한한다. 보낸 사람이 쓴 글을 그대로 싣는 필드를 더 만들지 않는다(`reply_to`만 `security_notice` 아래에 주소를 그대로 싣는다).
 
 ## Testing
 
@@ -57,4 +58,5 @@ Claude Code 플러그인이기도 하다. 레이아웃은 M1nu0x0의 다른 plug
 - 네이버 `SEARCH`는 디코딩한 헤더와 대조하지만 모든 키(`SUBJECT`, `FROM`, `HEADER`, charset 유무)에서 대소문자를 구분하고 `SEARCH=FUZZY`가 없다. OR는 1,024개까지 받고 조건 하나당 7–10ms다. 그래서 대소문자 조합을 전부 OR로 보낸다(`_casings`, 영문자 7자까지 128개). 더 긴 검색어는 조각을 AND로 묶어 후보를 좁히고 그 후보만 로컬에서 확인한다. 필드가 여럿이면 OR 항 합계가 1,024개를 넘지 않게 필드당 조각 수를 줄인다(`MAX_SERVER_TERMS`). 로컬 확인에서 응답이 빠진 UID는 작은 묶음으로 한 번 더 조회한다(`HEADER_RETRY_BATCH`). 텍스트 조건이 있으면 최신 1,000건까지만 돌려준다. 날짜나 UID 조건을 더해도 그보다 오래된 일치 건은 나오지 않는다.
 - 네이버는 웹 설정의 "IMAP 동기화 메일 제한"(최대 5,000통)만큼만 폴더가 보인다.
 - SMTP로 보낸 메일의 `Date` 헤더는 네이버 서버만 채운다. 다음·카카오는 채우지 않고 `smtplib`도 넣지 않으므로 `smtp_client.send_email`이 직접 넣는다(세 서버 모두 넣은 값을 그대로 둔다). `Message-ID`는 세 서버가 알아서 채우므로 넣지 않는다(네이버는 클라이언트가 넣은 값을 그대로 두고 다음·카카오는 자기 형식으로 바꾼다). 2026-11-17에 세 계정에서 자기 주소로 보낸 시험 메일을 `read_email`로 읽어 확인했다.
+- 네이버는 받은 메일에 `Authentication-Results`(authserv-id `mx.naver.com`)와 `Received-SPF`를, 다음·카카오는 `Received-SPF`만 단다(괄호 안 이름이 `mx.daum.net`, `kakao.com`). 다음의 한 통은 중계한 SparkPost 서버의 `Authentication-Results`만 달고 있었다. 그래서 `_authentication`은 서비스 이름이 든 줄만 읽고(`_provider_domain`은 IMAP 호스트에서 `naver.com` 등을 만든다), 판정 단어를 `_AUTH_VERDICTS`로 제한한다. 2026-11-18에 받은편지함 최신 80통(카카오 56통)으로 확인했다.
 - 2026-11-16에 네이버 실제 계정으로 통합 테스트 9개를 검증했다.

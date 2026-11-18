@@ -222,12 +222,30 @@ How `text_search` behaves (measured on real accounts on 2026-11-16):
 |-----------|------|----------|---------|-------------|
 | uid | string | Yes | - | Unique ID of the message |
 | folder | string | No | INBOX | Folder |
+| max_chars | integer | No | - | Return at most this many characters (1 or more) of `body_text` and of `body_html` each. Leave it out for the whole body. It limits what is returned, not what is downloaded |
+
+The result carries checks on the sender, read from the headers:
+
+| Field | Meaning |
+|-------|---------|
+| `reply_to` | The `Reply-To` addresses; an empty list when there is no such header |
+| `reply_to_differs` | `true` when a `Reply-To` address is on a domain unrelated to the `From` address's; the same domain, or one below the other, counts as related |
+| `list_unsubscribe` | `true` when there is a `List-Unsubscribe` header, which marks bulk mail |
+| `authentication` | The `spf`, `dkim` and `dmarc` results that the mail provider recorded (`pass`, `fail`, `softfail`, `neutral`, `none`, `policy`, `temperror`, `permerror`); a result it did not record is left out |
+| `truncated` | `true` when `max_chars` cut a body |
+
+- Naver records all three in `Authentication-Results`. Daum and Kakao record only `Received-SPF`, so they give `spf` alone. Checked on 2026-11-18 on the newest inbox messages of the three accounts (80 from Naver and Daum, 56 from Kakao), nearly every result was `pass`.
+- Only a line that carries the provider's own name (`mx.naver.com`, `mx.daum.net`, `kakao.com`) is read, and only the newest line of its kind. A line written by the sender or by a relaying service is ignored; one Daum message carried only the `Authentication-Results` of the SparkPost server that had relayed it.
+- These are header lines, so a sender can fake them, and a `pass` does not show that the sender is who they claim to be. Use them as a reason to look closer at a message, never as proof that it is safe.
 
 ### read_thread
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | message_id | string | Yes | - | Value of the Message-ID header |
 | folder | string | No | INBOX | Folder |
+| max_chars | integer | No | - | Applied to every message of the thread, as in `read_email` |
+
+Each message of the thread has the same fields as in `read_email`.
 
 ### list_folders
 List the folders. No parameters.
